@@ -1673,7 +1673,10 @@ class FlackleClient {
     }
     _absorbCookies(response);
     final rotatedCsrf = asStringOrNull(response.headers['x-csrf-token']);
-    if (rotatedCsrf != null) _csrfToken = rotatedCsrf;
+    if (rotatedCsrf != null) {
+      _csrfToken = rotatedCsrf;
+      _syncCookies();
+    }
     if (response.statusCode == 403 && retryCsrf && _isCsrfFailure(response)) {
       await _ensureCsrf(force: true);
       return _upload(
@@ -1731,6 +1734,7 @@ class FlackleClient {
     _csrfToken ??= asStringOrNull(asMap(data)['csrf_token']);
     _csrfToken ??= asStringOrNull(response.headers['x-csrf-token']);
     _absorbBrowserCookies();
+    if (_csrfToken?.isNotEmpty == true) _syncCookies();
   }
 
   Future<void> _refreshSession() async {
