@@ -141,8 +141,17 @@ class _ChatViewState extends State<ChatView> {
       );
     }
     _scroll.addListener(_onScroll);
+    _ensureServerMembers();
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _jumpToBottom(animate: false));
+  }
+
+  void _ensureServerMembers() {
+    final serverId = widget.target.serverId;
+    if (serverId == null) return;
+    final state = FlackleScope.read(context);
+    unawaited(state.loadMembers(serverId));
+    unawaited(state.loadRoles(serverId));
   }
 
   @override
@@ -165,6 +174,7 @@ class _ChatViewState extends State<ChatView> {
       _lastMessageId = null;
       _suggestions.clear();
       _suggestionStart = -1;
+      _ensureServerMembers();
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _jumpToBottom(animate: false));
     }
@@ -1258,9 +1268,10 @@ class _ChatViewState extends State<ChatView> {
 
   Widget _messageHeader(BuildContext context, AppState state, Message message) {
     final c = context.c;
-    final member = state.active?.serverId == null || message.author == null
+    final serverId = widget.target.serverId;
+    final member = serverId == null || message.author == null
         ? null
-        : state.memberById(state.active!.serverId!, message.author!.id);
+        : state.memberById(serverId, message.author!.id);
     final topRole = _topRole(state, member);
     final roleColor = parseHex(topRole?.color);
     final hasRoleIcon = topRole != null &&
@@ -1310,8 +1321,9 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Role? _topRole(AppState state, Member? member) {
-    if (member == null || state.active?.serverId == null) return null;
-    final roles = state.roles[state.active!.serverId!] ?? const <Role>[];
+    final serverId = widget.target.serverId;
+    if (member == null || serverId == null) return null;
+    final roles = state.roles[serverId] ?? const <Role>[];
     Role? top;
     for (final role in roles) {
       if (role.isEveryone || !member.roleIds.contains(role.id)) continue;
