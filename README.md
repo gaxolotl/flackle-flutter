@@ -23,7 +23,7 @@ This is an unofficial personal client. It is not affiliated with Flackle or Folk
 
 - Flutter **3.47.8** or newer (Dart 3.13+).
 - Android SDK 36, JDK 17+.
-- iOS builds require macOS, Xcode and CocoaPods.
+- iOS builds require macOS, Xcode and CocoaPods (iOS 15+).
 - For web development, the optional same-origin proxy in `scripts/real-proxy.mjs`.
 
 ## Run
