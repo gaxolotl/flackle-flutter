@@ -7,10 +7,13 @@ This is an unofficial personal client. It is not affiliated with Flackle or Folk
 ## Features
 
 - Sign in, MFA/backup-code login, session restore, and secure refresh-token storage.
-- Servers, categories, channels, DMs, and group DMs.
+- Servers, server folders/rail ordering, categories, channels, DMs, and group DMs.
+- A combined server rail and channel list on phones, so switching servers and channels does not require leaving the channel browser.
+- Role-grouped member lists with hoisted role sections and role icons next to member names.
 - Live gateway updates: messages, edits, deletes, reactions, typing, presence, member changes, channels and conversations.
 - Mentions and replies with `@` / `#` autocomplete, including mentionable roles.
 - Full message history with older-message pagination, image/attachment embeds, replies, reactions, editing and deleting.
+- Composer drafts are kept per channel or DM when you leave before sending.
 - Media saving to your Flackle saved-media collection.
 - GIF picker powered by KLIPY, with trending and search tabs, using Flackle's `/api/gifs` configuration.
 - Profile editor for avatar, banner and display name.

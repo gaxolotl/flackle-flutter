@@ -24,12 +24,14 @@ enum Density { cozy, compact }
 enum TextSize { small, normal, large }
 
 class AppPrefs extends ChangeNotifier {
-  AppPrefs._(this._store, this._values);
+  AppPrefs._(this._store, this._values, this._drafts);
 
   static const _key = 'flackle.mobile.preferences.v1';
+  static const _draftsKey = 'flackle.mobile.drafts.v1';
 
   final SharedPreferences _store;
   Map<String, dynamic> _values;
+  final Map<String, String> _drafts;
 
   static Future<AppPrefs> load() async {
     final store = await SharedPreferences.getInstance();
@@ -44,8 +46,36 @@ class AppPrefs extends ChangeNotifier {
         values = {};
       }
     }
-    return AppPrefs._(store, {..._defaults, ...values});
+    final drafts = <String, String>{};
+    final rawDrafts = store.getString(_draftsKey);
+    if (rawDrafts != null && rawDrafts.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawDrafts);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is String) drafts['${entry.key}'] = entry.value;
+          }
+        }
+      } catch (_) {
+        drafts.clear();
+      }
+    }
+    return AppPrefs._(store, {..._defaults, ...values}, drafts);
   }
+
+  String draft(String key) => _drafts[key] ?? '';
+
+  Future<void> setDraft(String key, String value) async {
+    if (value.isEmpty) {
+      if (_drafts.remove(key) == null) return;
+    } else {
+      if (_drafts[key] == value) return;
+      _drafts[key] = value;
+    }
+    await _store.setString(_draftsKey, jsonEncode(_drafts));
+  }
+
+  Future<void> clearDraft(String key) => setDraft(key, '');
 
   static const Map<String, dynamic> _defaults = {
     'theme': 'dark',

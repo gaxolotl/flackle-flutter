@@ -115,6 +115,42 @@ Color? _colorFromHex(String? hex) {
   return parsed == null ? null : Color(0xFF000000 | parsed);
 }
 
+class RoleIcon extends StatelessWidget {
+  const RoleIcon({required this.role, this.size = 12, super.key});
+
+  final Role? role;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = role;
+    if (value == null) return const SizedBox.shrink();
+    final iconUrl = value.iconUrl;
+    if (iconUrl != null && iconUrl.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.28),
+        child: AppImage(
+          iconUrl,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) {
+            final emoji = value.iconEmoji;
+            return emoji == null || emoji.isEmpty
+                ? SizedBox(width: size, height: size)
+                : EmojiGlyph(emoji, size: size);
+          },
+        ),
+      );
+    }
+    final emoji = value.iconEmoji;
+    if (emoji != null && emoji.isNotEmpty) {
+      return EmojiGlyph(emoji, size: size);
+    }
+    return const SizedBox.shrink();
+  }
+}
+
 class PresenceDot extends StatelessWidget {
   const PresenceDot(this.status, {this.size = 8, super.key});
 

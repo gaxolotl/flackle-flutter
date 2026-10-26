@@ -81,13 +81,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     setState(() {
       _view = WorkspaceView.server;
       _serverId = server.id;
+      if (isNarrow(context)) _mobileIndex = 1;
     });
     unawaited(widget.state.selectServer(server.id));
-    if (isNarrow(context)) {
-      Navigator.of(context).push<void>(MaterialPageRoute(
-        builder: (_) => ServerChannelsPage(serverId: server.id),
-      ));
-    }
   }
 
   Future<void> _openSettings() async {
@@ -104,6 +100,22 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
   Future<void> _openSearch() async {
     await showQuickSwitcher(context, serverId: _serverId);
+  }
+
+  Future<void> _showMobileMembers(BuildContext context, String serverId) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * 0.7,
+        child: MemberPanel(
+          serverId: serverId,
+          embedded: true,
+          onClose: () => Navigator.of(sheetContext).pop(),
+        ),
+      ),
+    );
   }
 
   Future<void> _showNotifications() async {
@@ -198,6 +210,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         setState(() {
           _serverId = target.serverId;
           _view = WorkspaceView.server;
+          if (isNarrow(context)) _mobileIndex = 1;
         });
       }
     } else {
@@ -206,7 +219,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           .firstOrNull;
       if (conversation != null) {
         unawaited(openConversation(context, widget.state, conversation));
-        setState(() => _view = WorkspaceView.home);
+        setState(() {
+          _view = WorkspaceView.home;
+          if (isNarrow(context)) _mobileIndex = 0;
+        });
       }
     }
   }
@@ -283,8 +299,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                for (final server in state.servers)
-                  _serverButton(context, state, server),
+                for (final unit in _railUnits(state))
+                  if (unit.folder != null)
+                    _railFolderButton(context, state, unit)
+                  else
+                    _serverButton(context, state, unit.server!),
                 const SizedBox(height: 4),
                 _railButton(
                   context,
@@ -389,6 +408,224 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  List<_RailUnit> _railUnits(AppState state) {
+    final settings = state.serverSettings;
+    int serverPosition(Server server) =>
+        settings[server.id]?.position ?? server.position ?? 0;
+    final folderIds = state.serverFolders.map((folder) => folder.id).toSet();
+    final grouped = <String, List<Server>>{};
+    final loose = <Server>[];
+    final servers = state.servers.asMap().entries.toList()
+      ..sort((a, b) {
+        final byPosition =
+            serverPosition(a.value).compareTo(serverPosition(b.value));
+        return byPosition != 0 ? byPosition : a.key.compareTo(b.key);
+      });
+    for (final entry in servers) {
+      final folderId = settings[entry.value.id]?.folderId;
+      if (folderId != null && folderIds.contains(folderId)) {
+        grouped.putIfAbsent(folderId, () => []).add(entry.value);
+      } else {
+        loose.add(entry.value);
+      }
+    }
+    final folders = [...state.serverFolders]..sort((a, b) {
+        final byPosition = a.position.compareTo(b.position);
+        return byPosition != 0 ? byPosition : a.name.compareTo(b.name);
+      });
+    final units = <_RailUnit>[
+      for (final folder in folders)
+        _RailUnit.folder(
+          folder,
+          grouped[folder.id] ?? const [],
+          folder.position,
+        ),
+      for (final server in loose)
+        _RailUnit.server(server, serverPosition(server)),
+    ]..sort((a, b) {
+        final byPosition = a.position.compareTo(b.position);
+        if (byPosition != 0) return byPosition;
+        if (a.folder != null && b.folder == null) return -1;
+        if (a.folder == null && b.folder != null) return 1;
+        return 0;
+      });
+    return units;
+  }
+
+  Widget _railFolderButton(
+      BuildContext context, AppState state, _RailUnit unit) {
+    final c = context.c;
+    final folder = unit.folder!;
+    final active = _view == WorkspaceView.server &&
+        unit.servers.any((server) =>
+            _serverId == server.id || state.active?.serverId == server.id);
+    final unread = unit.servers.fold<int>(
+        0, (total, server) => total + state.unreadForServer(server.id));
+    final mentions = unit.servers.fold<int>(
+        0, (total, server) => total + state.mentionsForServer(server.id));
+    final folderColor = parseHex(folder.color);
+    return Tooltip(
+      message: folder.name,
+      waitDuration: const Duration(milliseconds: 300),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _showFolderMenu(state, unit),
+          child: SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: state.prefs.reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 160),
+                  width: 3,
+                  height: active ? 30 : (unread > 0 ? 8 : 0),
+                  decoration: BoxDecoration(
+                    color: active ? c.accent : c.textDim,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: c.panel3,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: active
+                              ? c.accent.withValues(alpha: 0.45)
+                              : folderColor?.withValues(alpha: 0.45) ??
+                                  c.lineStrong,
+                        ),
+                      ),
+                      child: _folderPreview(unit.servers),
+                    ),
+                    if (mentions > 0)
+                      Positioned(
+                        right: -4,
+                        top: -3,
+                        child:
+                            CountBadge(mentions, mentions: true, compact: true),
+                      )
+                    else if (unread > 0)
+                      Positioned(
+                        right: -2,
+                        top: -2,
+                        child: Container(
+                          width: 11,
+                          height: 11,
+                          decoration: BoxDecoration(
+                            color: c.textDim,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: c.rail, width: 2),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _folderPreview(List<Server> servers) {
+    if (servers.isEmpty) {
+      return const Icon(Icons.folder_outlined, size: 18);
+    }
+    final preview = servers.take(4).toList();
+    return GridView.count(
+      crossAxisCount: 2,
+      mainAxisSpacing: 1,
+      crossAxisSpacing: 1,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        for (final server in preview)
+          AppAvatar(
+            url: server.iconUrl,
+            name: server.name,
+            size: 15,
+            square: true,
+          ),
+      ],
+    );
+  }
+
+  Future<void> _showFolderMenu(AppState state, _RailUnit unit) async {
+    final folder = unit.folder!;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(folder.name,
+                        style: context.display(17, weight: FontWeight.w600)),
+                  ),
+                  Text('${unit.servers.length}',
+                      style: TextStyle(color: context.c.muted, fontSize: 12)),
+                ],
+              ),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  if (unit.servers.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text('This folder is empty.',
+                          style: TextStyle(color: context.c.muted)),
+                    ),
+                  for (final server in unit.servers)
+                    ListTile(
+                      leading: AppAvatar(
+                        url: server.iconUrl,
+                        name: server.name,
+                        size: 36,
+                        square: true,
+                      ),
+                      title: Text(server.name,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: server.memberCount == null
+                          ? null
+                          : Text('${server.memberCount} members'),
+                      trailing: _serverId == server.id ||
+                              state.active?.serverId == server.id
+                          ? Icon(Icons.check_rounded,
+                              size: 18, color: context.c.accent)
+                          : null,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _selectServer(server);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -666,14 +903,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               final next = collapsed
                   ? current.where((id) => id != category.id).toList()
                   : [...current, category.id];
-              state.serverSettings[serverId] = ServerUserSettings(
-                serverId: serverId,
-                notificationLevel:
-                    state.serverSettings[serverId]?.notificationLevel,
-                lastViewedChannelId:
-                    state.serverSettings[serverId]?.lastViewedChannelId,
-                collapsedCategories: next,
-              );
+              final currentSettings = state.serverSettings[serverId];
+              state.serverSettings[serverId] = currentSettings == null
+                  ? ServerUserSettings(
+                      serverId: serverId,
+                      collapsedCategories: next,
+                    )
+                  : currentSettings.copyWith(collapsedCategories: next);
               unawaited(state.client.updateServerUserSettings(serverId,
                   {'collapsed_categories': next}).catchError((Object _) {}));
             },
@@ -1399,9 +1635,20 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           onSettings: _openSettings,
           onCreateGroup: _newGroup),
       _MobileServers(
-          state: state,
-          onOpen: _selectServer,
-          onAdd: () => openAddServer(context)),
+        state: state,
+        serverId: _serverId ?? state.active?.serverId,
+        railItems: [
+          for (final unit in _railUnits(state))
+            if (unit.folder != null)
+              _railFolderButton(context, state, unit)
+            else
+              _serverButton(context, state, unit.server!),
+        ],
+        onAdd: () => openAddServer(context),
+        onSearch: _openSearch,
+        onServerSettings: _openServerSettings,
+        onMembers: (serverId) => _showMobileMembers(context, serverId),
+      ),
       FriendsView(
         onOpenConversation: (conversation) {
           unawaited(openConversation(context, state, conversation));
@@ -1595,26 +1842,75 @@ class _MobileMessages extends StatelessWidget {
 class _MobileServers extends StatelessWidget {
   const _MobileServers({
     required this.state,
-    required this.onOpen,
+    required this.serverId,
+    required this.railItems,
     required this.onAdd,
+    required this.onSearch,
+    required this.onServerSettings,
+    required this.onMembers,
   });
 
   final AppState state;
-  final void Function(Server server) onOpen;
+  final String? serverId;
+  final List<Widget> railItems;
   final VoidCallback onAdd;
+  final VoidCallback onSearch;
+  final VoidCallback onServerSettings;
+  final void Function(String serverId) onMembers;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final server = serverId == null ? null : state.serverById(serverId!);
+    final online = server == null
+        ? 0
+        : state
+            .membersFor(server.id)
+            .where((member) =>
+                (state.presences[member.user.id] ??
+                    member.presence ??
+                    'offline') !=
+                'offline')
+            .length;
     return Column(
       children: [
         _MobileHeader(
-          title: 'Servers',
-          subtitle: '${state.servers.length} joined',
-          trailing: IconButton(
-            onPressed: onAdd,
-            tooltip: 'Add a server',
-            icon: const Icon(Icons.add_rounded, size: 20),
+          title: server?.name ?? 'Servers',
+          subtitle: server == null
+              ? '${state.servers.length} joined'
+              : '${server.memberCount ?? state.membersFor(server.id).length} members'
+                  '${online > 0 ? ' · $online online' : ''}',
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (server != null)
+                IconButton(
+                  onPressed: onSearch,
+                  tooltip: 'Search channels',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.search_rounded, size: 19),
+                ),
+              if (server != null)
+                IconButton(
+                  onPressed: () => onMembers(server.id),
+                  tooltip: 'Members',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.people_alt_outlined, size: 19),
+                ),
+              if (server != null)
+                IconButton(
+                  onPressed: onServerSettings,
+                  tooltip: 'Server settings',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.settings_outlined, size: 19),
+                ),
+              IconButton(
+                onPressed: onAdd,
+                tooltip: 'Add a server',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.add_rounded, size: 21),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -1629,63 +1925,60 @@ class _MobileServers extends StatelessWidget {
                     label: const Text('Add a server'),
                   ),
                 )
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 20),
-                  itemCount: state.servers.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    final server = state.servers[index];
-                    final unread = state.unreadForServer(server.id);
-                    final mentions = state.mentionsForServer(server.id);
-                    return Material(
-                      color: c.panel,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => onOpen(server),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 11),
-                          child: Row(
-                            children: [
-                              AppAvatar(
-                                url: server.iconUrl,
-                                name: server.name,
-                                size: 44,
-                                square: true,
-                              ),
-                              const SizedBox(width: 11),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+              : Row(
+                  children: [
+                    Container(
+                      width: 66,
+                      color: c.rail,
+                      child: ListView(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        children: [
+                          ...railItems,
+                          const SizedBox(height: 4),
+                          Tooltip(
+                            message: 'Add a server',
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: onAdd,
+                              child: SizedBox(
+                                height: 48,
+                                child: Row(
                                   children: [
-                                    EmojiText(server.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: context.label(14,
-                                            weight: FontWeight.w600)),
-                                    const SizedBox(height: 3),
-                                    Text(
-                                      server.memberCount == null
-                                          ? 'Channels and conversations'
-                                          : '${server.memberCount} members',
-                                      style: context.label(11, color: c.muted),
+                                    const SizedBox(width: 11),
+                                    Container(
+                                      width: 42,
+                                      height: 42,
+                                      decoration: BoxDecoration(
+                                        color: c.panel3,
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Icon(Icons.add_rounded,
+                                          size: 22, color: c.green),
                                     ),
                                   ],
                                 ),
                               ),
-                              if (mentions > 0)
-                                CountBadge(mentions, mentions: true)
-                              else if (unread > 0)
-                                CountBadge(unread, compact: true),
-                              const SizedBox(width: 4),
-                              const Icon(Icons.chevron_right_rounded, size: 18),
-                            ],
+                            ),
                           ),
-                        ),
+                        ],
                       ),
-                    );
-                  },
+                    ),
+                    Container(width: 1, color: c.line),
+                    Expanded(
+                      child: server == null
+                          ? EmptyPane(
+                              icon: Icons.hub_outlined,
+                              title: 'Choose a server',
+                              detail:
+                                  'Your servers and channels live together here.',
+                            )
+                          : ServerChannelsPage(
+                              key: ValueKey(server.id),
+                              serverId: server.id,
+                              embedded: true,
+                            ),
+                    ),
+                  ],
                 ),
         ),
       ],
@@ -1834,6 +2127,20 @@ class _MobileYou extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RailUnit {
+  const _RailUnit.server(this.server, this.position)
+      : folder = null,
+        servers = const [];
+
+  const _RailUnit.folder(this.folder, this.servers, this.position)
+      : server = null;
+
+  final Server? server;
+  final ServerFolder? folder;
+  final List<Server> servers;
+  final int position;
 }
 
 class _MobileHeader extends StatelessWidget {

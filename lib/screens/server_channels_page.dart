@@ -16,9 +16,14 @@ import 'search_dialog.dart';
 import 'server_settings_screen.dart';
 
 class ServerChannelsPage extends StatefulWidget {
-  const ServerChannelsPage({required this.serverId, super.key});
+  const ServerChannelsPage({
+    required this.serverId,
+    this.embedded = false,
+    super.key,
+  });
 
   final String serverId;
+  final bool embedded;
 
   @override
   State<ServerChannelsPage> createState() => _ServerChannelsPageState();
@@ -73,66 +78,69 @@ class _ServerChannelsPageState extends State<ServerChannelsPage> {
         .length;
 
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Row(
-          children: [
-            AppAvatar(
-              url: server?.iconUrl,
-              name: server?.name ?? 'Server',
-              size: 32,
-              square: true,
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              titleSpacing: 0,
+              title: Row(
                 children: [
-                  EmojiText(server?.name ?? 'Server',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.display(15, weight: FontWeight.w600)),
-                  Text(
-                    '${server?.memberCount ?? state.membersFor(widget.serverId).length} members'
-                    '${online > 0 ? ' · $online online' : ''}',
-                    style: context.label(10, color: c.muted),
+                  AppAvatar(
+                    url: server?.iconUrl,
+                    name: server?.name ?? 'Server',
+                    size: 32,
+                    square: true,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        EmojiText(server?.name ?? 'Server',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                context.display(15, weight: FontWeight.w600)),
+                        Text(
+                          '${server?.memberCount ?? state.membersFor(widget.serverId).length} members'
+                          '${online > 0 ? ' · $online online' : ''}',
+                          style: context.label(10, color: c.muted),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: () =>
-                showQuickSwitcher(context, serverId: widget.serverId),
-            tooltip: 'Search channels',
-            icon: const Icon(Icons.search_rounded, size: 19),
-          ),
-          IconButton(
-            onPressed: () => showModalBottomSheet<void>(
-              context: context,
-              isScrollControlled: true,
-              builder: (context) => SizedBox(
-                height: MediaQuery.sizeOf(context).height * 0.7,
-                child: MemberPanel(
-                  serverId: widget.serverId,
-                  embedded: true,
-                  onClose: () => Navigator.of(context).pop(),
+              actions: [
+                IconButton(
+                  onPressed: () =>
+                      showQuickSwitcher(context, serverId: widget.serverId),
+                  tooltip: 'Search channels',
+                  icon: const Icon(Icons.search_rounded, size: 19),
                 ),
-              ),
+                IconButton(
+                  onPressed: () => showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (context) => SizedBox(
+                      height: MediaQuery.sizeOf(context).height * 0.7,
+                      child: MemberPanel(
+                        serverId: widget.serverId,
+                        embedded: true,
+                        onClose: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                  ),
+                  tooltip: 'Members',
+                  icon: const Icon(Icons.people_alt_outlined, size: 19),
+                ),
+                IconButton(
+                  onPressed: () =>
+                      openServerSettings(context, serverId: widget.serverId),
+                  tooltip: 'Server settings',
+                  icon: const Icon(Icons.settings_outlined, size: 19),
+                ),
+              ],
             ),
-            tooltip: 'Members',
-            icon: const Icon(Icons.people_alt_outlined, size: 19),
-          ),
-          IconButton(
-            onPressed: () =>
-                openServerSettings(context, serverId: widget.serverId),
-            tooltip: 'Server settings',
-            icon: const Icon(Icons.settings_outlined, size: 19),
-          ),
-        ],
-      ),
       body: state.loading && bundle == null
           ? const LoadingPane()
           : bundle == null

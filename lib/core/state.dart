@@ -34,6 +34,7 @@ class AppState extends ChangeNotifier {
 
   SelfUser? me;
   List<Server> servers = const [];
+  List<ServerFolder> serverFolders = const [];
   List<Conversation> conversations = const [];
   final Map<String, ChannelBundle> bundles = {};
   final Map<String, String> serverPermissions = {};
@@ -73,6 +74,8 @@ class AppState extends ChangeNotifier {
   Timer? _typingDebounce;
   Timer? _typingStop;
   Timer? _unreadRefresh;
+  final Set<String> _loadingMembers = {};
+  final Set<String> _loadingRoles = {};
 
   bool _disposed = false;
 
@@ -110,8 +113,10 @@ class AppState extends ChangeNotifier {
       me = data['me'] as SelfUser;
       userCache[me!.id] = me!;
       servers = data['servers'] as List<Server>;
+      serverFolders = data['folders'] as List<ServerFolder>;
       conversations = data['conversations'] as List<Conversation>;
       _cacheConversationMembers();
+      serverSettings.clear();
       for (final entry in data['server_settings'] as List<ServerUserSettings>) {
         serverSettings[entry.serverId] = entry;
       }
@@ -142,9 +147,21 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshAll() async {
     try {
-      servers = await client.fetchServers();
-      conversations = await client.fetchConversations();
-      final summary = await client.fetchUnread();
+      final results = await Future.wait([
+        client.fetchServers(),
+        client.fetchConversations(),
+        client.fetchUnread(),
+        client.fetchServerPreferences(),
+      ]);
+      servers = results[0] as List<Server>;
+      conversations = results[1] as List<Conversation>;
+      final summary = results[2] as UnreadSummary;
+      final preferences = results[3] as ServerPreferences;
+      serverFolders = preferences.folders;
+      serverSettings
+        ..clear()
+        ..addEntries(preferences.settings
+            .map((entry) => MapEntry(entry.serverId, entry)));
       unread
         ..clear()
         ..addEntries(
@@ -368,12 +385,8 @@ class AppState extends ChangeNotifier {
         ).catchError((Object _) {}));
         final settings = serverSettings[target.serverId!];
         if (settings != null) {
-          serverSettings[target.serverId!] = ServerUserSettings(
-            serverId: settings.serverId,
-            notificationLevel: settings.notificationLevel,
-            lastViewedChannelId: target.channelId,
-            collapsedCategories: settings.collapsedCategories,
-          );
+          serverSettings[target.serverId!] =
+              settings.copyWith(lastViewedChannelId: target.channelId);
         }
       } else {
         final index = conversations
@@ -726,7 +739,9 @@ class AppState extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> loadMembers(String serverId, {bool force = false}) async {
-    if (members.containsKey(serverId) && !force) return;
+    if ((members.containsKey(serverId) && !force) ||
+        _loadingMembers.contains(serverId)) return;
+    _loadingMembers.add(serverId);
     try {
       final list = await client.fetchMembers(serverId);
       members[serverId] = list;
@@ -734,16 +749,26 @@ class AppState extends ChangeNotifier {
         userCache[member.user.id] = member.user;
       }
       notifyListeners();
-    } catch (_) {}
+    } catch (_) {
+      // Members are cached on a best-effort basis.
+    } finally {
+      _loadingMembers.remove(serverId);
+    }
   }
 
   Future<void> loadRoles(String serverId, {bool force = false}) async {
-    if (roles.containsKey(serverId) && !force) return;
+    if ((roles.containsKey(serverId) && !force) ||
+        _loadingRoles.contains(serverId)) return;
+    _loadingRoles.add(serverId);
     try {
       final response = await client.fetchRoles(serverId);
       roles[serverId] = response.roles;
       notifyListeners();
-    } catch (_) {}
+    } catch (_) {
+      // Roles are cached on a best-effort basis.
+    } finally {
+      _loadingRoles.remove(serverId);
+    }
   }
 
   Future<void> loadFriends() async {

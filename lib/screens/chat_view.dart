@@ -13,6 +13,7 @@ import '../app.dart';
 import '../core/format.dart';
 import '../core/models.dart';
 import '../core/permissions.dart';
+import '../core/prefs.dart';
 import '../core/state.dart';
 import '../core/theme.dart';
 import '../ui/common.dart';
@@ -120,6 +121,8 @@ class _ChatViewState extends State<ChatView> {
   String? _hoveredId;
   String? _lastMessageId;
   Timer? _typingTimer;
+  Timer? _draftTimer;
+  late final AppPrefs _prefs;
   final Set<String> _menuOpen = {};
   final List<_ComposerSuggestion> _suggestions = [];
   int _suggestionStart = -1;
@@ -129,6 +132,14 @@ class _ChatViewState extends State<ChatView> {
   @override
   void initState() {
     super.initState();
+    _prefs = FlackleScope.read(context).prefs;
+    final draft = _prefs.draft(widget.target.key);
+    if (draft.isNotEmpty) {
+      _composer.value = TextEditingValue(
+        text: draft,
+        selection: TextSelection.collapsed(offset: draft.length),
+      );
+    }
     _scroll.addListener(_onScroll);
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _jumpToBottom(animate: false));
@@ -138,10 +149,19 @@ class _ChatViewState extends State<ChatView> {
   void didUpdateWidget(covariant ChatView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.target.key != widget.target.key) {
+      _draftTimer?.cancel();
+      unawaited(_prefs.setDraft(oldWidget.target.key, _composer.text));
       _reply = null;
       _editing = null;
       _attachments.clear();
       _composer.clear();
+      final draft = _prefs.draft(widget.target.key);
+      if (draft.isNotEmpty) {
+        _composer.value = TextEditingValue(
+          text: draft,
+          selection: TextSelection.collapsed(offset: draft.length),
+        );
+      }
       _lastMessageId = null;
       _suggestions.clear();
       _suggestionStart = -1;
@@ -153,10 +173,19 @@ class _ChatViewState extends State<ChatView> {
   @override
   void dispose() {
     _typingTimer?.cancel();
+    _draftTimer?.cancel();
+    unawaited(_prefs.setDraft(widget.target.key, _composer.text));
     _scroll.dispose();
     _composer.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  void _saveDraftSoon(String value) {
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 450), () {
+      unawaited(_prefs.setDraft(widget.target.key, value));
+    });
   }
 
   void _onScroll() {
@@ -190,6 +219,7 @@ class _ChatViewState extends State<ChatView> {
       _typingTimer?.cancel();
       _typingTimer = Timer(const Duration(seconds: 5), _state.stopTyping);
     }
+    _saveDraftSoon(value);
     setState(() {});
     _refreshSuggestions();
   }
@@ -328,6 +358,7 @@ class _ChatViewState extends State<ChatView> {
       text: next,
       selection: TextSelection.collapsed(offset: offset),
     );
+    _saveDraftSoon(next);
     _clearSuggestions();
     _focus.requestFocus();
   }
@@ -345,6 +376,8 @@ class _ChatViewState extends State<ChatView> {
           _editing = null;
           _composer.clear();
         });
+        _draftTimer?.cancel();
+        unawaited(_prefs.clearDraft(widget.target.key));
       } else {
         await state.sendMessage(
           text,
@@ -356,6 +389,8 @@ class _ChatViewState extends State<ChatView> {
           _attachments.clear();
           _reply = null;
         });
+        _draftTimer?.cancel();
+        unawaited(_prefs.clearDraft(widget.target.key));
         if (_state.prefs.characterCounter) setState(() {});
       }
       _typingTimer?.cancel();
@@ -609,11 +644,17 @@ class _ChatViewState extends State<ChatView> {
             await state.client.updateServerUserSettings(target.serverId!, {
               'notification_level': next,
             });
-            state.serverSettings[target.serverId!] = ServerUserSettings(
-              serverId: target.serverId!,
-              notificationLevel: next,
-              lastViewedChannelId: target.channelId,
-            );
+            final currentSettings = state.serverSettings[target.serverId!];
+            state.serverSettings[target.serverId!] = currentSettings == null
+                ? ServerUserSettings(
+                    serverId: target.serverId!,
+                    notificationLevel: next,
+                    lastViewedChannelId: target.channelId,
+                  )
+                : currentSettings.copyWith(
+                    notificationLevel: next,
+                    lastViewedChannelId: target.channelId,
+                  );
             if (context.mounted) {
               showAppToast(context,
                   next == 'nothing' ? 'Server muted.' : 'Server unmuted.');
@@ -1220,16 +1261,23 @@ class _ChatViewState extends State<ChatView> {
     final member = state.active?.serverId == null || message.author == null
         ? null
         : state.memberById(state.active!.serverId!, message.author!.id);
-    final roleColor = _topRoleColor(state, member);
+    final topRole = _topRole(state, member);
+    final roleColor = parseHex(topRole?.color);
+    final hasRoleIcon = topRole != null &&
+        (topRole.iconUrl?.isNotEmpty == true ||
+            topRole.iconEmoji?.isNotEmpty == true);
     final name = state.prefs.showMeYourName
         ? message.authorName
         : message.author?.username ?? message.authorName;
     return Padding(
       padding: const EdgeInsets.only(bottom: 1),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          if (hasRoleIcon) ...[
+            RoleIcon(role: topRole, size: 13),
+            const SizedBox(width: 4),
+          ],
           Flexible(
             child: Text(
               name,
@@ -1261,15 +1309,15 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Color? _topRoleColor(AppState state, Member? member) {
+  Role? _topRole(AppState state, Member? member) {
     if (member == null || state.active?.serverId == null) return null;
     final roles = state.roles[state.active!.serverId!] ?? const <Role>[];
     Role? top;
     for (final role in roles) {
       if (role.isEveryone || !member.roleIds.contains(role.id)) continue;
-      if (top == null || (role.position) > (top.position)) top = role;
+      if (top == null || role.position > top.position) top = role;
     }
-    return parseHex(top?.color);
+    return top;
   }
 
   Widget _hoverActions(BuildContext context, AppState state, Message message) {

@@ -1482,12 +1482,16 @@ class MessagePage {
 class ServerUserSettings {
   const ServerUserSettings({
     required this.serverId,
+    this.position,
+    this.folderId,
     this.notificationLevel,
     this.lastViewedChannelId,
     this.collapsedCategories = const [],
   });
 
   final String serverId;
+  final int? position;
+  final String? folderId;
   final String? notificationLevel;
   final String? lastViewedChannelId;
   final List<String> collapsedCategories;
@@ -1495,10 +1499,71 @@ class ServerUserSettings {
   factory ServerUserSettings.fromJson(Map<String, dynamic> json) =>
       ServerUserSettings(
         serverId: asString(json['server_id']),
+        position: asIntOrNull(json['position']),
+        folderId: asStringOrNull(json['folder_id']),
         notificationLevel: asStringOrNull(json['notification_level']),
         lastViewedChannelId: asStringOrNull(json['last_viewed_channel_id']),
         collapsedCategories: asList(json['collapsed_categories'])
             .map((value) => '$value')
+            .toList(),
+      );
+
+  ServerUserSettings copyWith({
+    int? position,
+    String? folderId,
+    String? notificationLevel,
+    String? lastViewedChannelId,
+    List<String>? collapsedCategories,
+  }) =>
+      ServerUserSettings(
+        serverId: serverId,
+        position: position ?? this.position,
+        folderId: folderId ?? this.folderId,
+        notificationLevel: notificationLevel ?? this.notificationLevel,
+        lastViewedChannelId: lastViewedChannelId ?? this.lastViewedChannelId,
+        collapsedCategories: collapsedCategories ?? this.collapsedCategories,
+      );
+}
+
+class ServerFolder {
+  const ServerFolder({
+    required this.id,
+    required this.name,
+    this.color,
+    this.position = 0,
+  });
+
+  final String id;
+  final String name;
+  final String? color;
+  final int position;
+
+  factory ServerFolder.fromJson(Map<String, dynamic> json) => ServerFolder(
+        id: asString(json['id']),
+        name: asString(json['name'], 'Folder'),
+        color: asColor(json['color']),
+        position: asIntOrNull(json['position']) ?? 0,
+      );
+}
+
+class ServerPreferences {
+  const ServerPreferences({
+    this.folders = const [],
+    this.settings = const [],
+  });
+
+  final List<ServerFolder> folders;
+  final List<ServerUserSettings> settings;
+
+  factory ServerPreferences.fromJson(Map<String, dynamic> json) =>
+      ServerPreferences(
+        folders: asList(json['folders'])
+            .whereType<Map>()
+            .map((value) => ServerFolder.fromJson(asMap(value)))
+            .toList(),
+        settings: asList(json['server_settings'])
+            .whereType<Map>()
+            .map((value) => ServerUserSettings.fromJson(asMap(value)))
             .toList(),
       );
 }

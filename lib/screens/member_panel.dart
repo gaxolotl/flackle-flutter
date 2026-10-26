@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app.dart';
@@ -28,6 +30,17 @@ class _MemberPanelState extends State<MemberPanel> {
   String _query = '';
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final state = FlackleScope.read(context);
+      unawaited(state.loadMembers(widget.serverId));
+      unawaited(state.loadRoles(widget.serverId));
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = FlackleScope.of(context);
     final c = context.c;
@@ -41,10 +54,6 @@ class _MemberPanelState extends State<MemberPanel> {
         onlineIds.add(member.id);
       }
     }
-    final online =
-        all.where((member) => onlineIds.contains(member.id)).toList();
-    final offline =
-        all.where((member) => !onlineIds.contains(member.id)).toList();
     final filtered = _query.isEmpty
         ? all
         : all
@@ -56,10 +65,41 @@ class _MemberPanelState extends State<MemberPanel> {
                     .toLowerCase()
                     .contains(_query.toLowerCase()))
             .toList();
+    final hoistedRoles = roles
+        .where((role) => role.hoist && !role.isEveryone)
+        .toList()
+      ..sort((a, b) => b.position.compareTo(a.position));
+    final byRole = <String, List<Member>>{};
+    final ungrouped = <Member>[];
+    for (final member in filtered) {
+      Role? group;
+      for (final role in hoistedRoles) {
+        if (member.roleIds.contains(role.id)) {
+          group = role;
+          break;
+        }
+      }
+      if (group == null) {
+        ungrouped.add(member);
+      } else {
+        byRole.putIfAbsent(group.id, () => []).add(member);
+      }
+    }
+    int compareMembers(Member a, Member b) {
+      final aOnline = onlineIds.contains(a.id);
+      final bOnline = onlineIds.contains(b.id);
+      if (aOnline != bOnline) return aOnline ? -1 : 1;
+      return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    }
+
+    for (final list in byRole.values) {
+      list.sort(compareMembers);
+    }
+    ungrouped.sort(compareMembers);
     final onlineFiltered =
-        filtered.where((member) => onlineIds.contains(member.id)).toList();
+        ungrouped.where((member) => onlineIds.contains(member.id)).toList();
     final offlineFiltered =
-        filtered.where((member) => !onlineIds.contains(member.id)).toList();
+        ungrouped.where((member) => !onlineIds.contains(member.id)).toList();
 
     return Container(
       width: widget.embedded ? null : 236,
@@ -111,14 +151,23 @@ class _MemberPanelState extends State<MemberPanel> {
                 ? const LoadingPane()
                 : Builder(builder: (context) {
                     final entries = <Object>[];
+                    for (final role in hoistedRoles) {
+                      final list = byRole[role.id];
+                      if (list == null || list.isEmpty) continue;
+                      entries.add(_MemberSection(
+                        '${role.name.toUpperCase()}  -  ${list.length}',
+                        role: role,
+                      ));
+                      entries.addAll(list);
+                    }
                     if (onlineFiltered.isNotEmpty) {
-                      entries
-                          .add(_MemberSection('ONLINE  -  ${online.length}'));
+                      entries.add(_MemberSection(
+                          'ONLINE  -  ${onlineFiltered.length}'));
                       entries.addAll(onlineFiltered);
                     }
                     if (offlineFiltered.isNotEmpty) {
-                      entries
-                          .add(_MemberSection('OFFLINE  -  ${offline.length}'));
+                      entries.add(_MemberSection(
+                          'OFFLINE  -  ${offlineFiltered.length}'));
                       entries.addAll(offlineFiltered);
                     }
                     if (filtered.isEmpty) {
@@ -130,7 +179,7 @@ class _MemberPanelState extends State<MemberPanel> {
                       itemBuilder: (context, index) {
                         final entry = entries[index];
                         if (entry is _MemberSection) {
-                          return _section(entry.label);
+                          return _section(entry.label, role: entry.role);
                         }
                         if (entry is String) {
                           return Padding(
@@ -151,14 +200,26 @@ class _MemberPanelState extends State<MemberPanel> {
     );
   }
 
-  Widget _section(String label) => Padding(
+  Widget _section(String label, {Role? role}) => Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 5),
-        child: Text(
-          label,
-          style: context.label(9.5,
-              weight: FontWeight.w700,
-              color: context.c.muted,
-              letterSpacing: 0.9),
+        child: Row(
+          children: [
+            if (role != null &&
+                (role.iconUrl?.isNotEmpty == true ||
+                    role.iconEmoji?.isNotEmpty == true)) ...[
+              RoleIcon(role: role, size: 11),
+              const SizedBox(width: 4),
+            ],
+            Expanded(
+              child: Text(
+                label,
+                style: context.label(9.5,
+                    weight: FontWeight.w700,
+                    color: context.c.muted,
+                    letterSpacing: 0.9),
+              ),
+            ),
+          ],
         ),
       );
 
@@ -215,6 +276,12 @@ class _MemberPanelState extends State<MemberPanel> {
                 children: [
                   Row(
                     children: [
+                      if (topRole != null &&
+                          (topRole.iconUrl?.isNotEmpty == true ||
+                              topRole.iconEmoji?.isNotEmpty == true)) ...[
+                        RoleIcon(role: topRole, size: 12),
+                        const SizedBox(width: 4),
+                      ],
                       Flexible(
                         child: EmojiText(
                           member.displayName,
@@ -239,8 +306,10 @@ class _MemberPanelState extends State<MemberPanel> {
                       padding: const EdgeInsets.only(top: 2),
                       child: Row(
                         children: [
-                          if (memberRoles.first.iconEmoji != null) ...[
-                            EmojiGlyph(memberRoles.first.iconEmoji!, size: 9),
+                          if (memberRoles.first.iconUrl?.isNotEmpty == true ||
+                              memberRoles.first.iconEmoji?.isNotEmpty ==
+                                  true) ...[
+                            RoleIcon(role: memberRoles.first, size: 10),
                             const SizedBox(width: 3),
                           ],
                           Flexible(
@@ -270,9 +339,10 @@ class _MemberPanelState extends State<MemberPanel> {
 }
 
 class _MemberSection {
-  const _MemberSection(this.label);
+  const _MemberSection(this.label, {this.role});
 
   final String label;
+  final Role? role;
 }
 
 Color? parseHex(String? hex) {

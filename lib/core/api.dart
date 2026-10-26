@@ -364,6 +364,10 @@ class FlackleClient {
       'server_settings': _list(values[4], 'server_settings')
           .map((value) => ServerUserSettings.fromJson(asMap(value)))
           .toList(),
+      'folders': asList(asMap(values[4])['folders'])
+          .whereType<Map>()
+          .map((value) => ServerFolder.fromJson(asMap(value)))
+          .toList(),
     };
   }
 
@@ -393,6 +397,10 @@ class FlackleClient {
         .map((value) => ServerUserSettings.fromJson(asMap(value)))
         .toList();
   }
+
+  Future<ServerPreferences> fetchServerPreferences() async =>
+      ServerPreferences.fromJson(
+          asMap(await _json('GET', '/api/servers/@me/settings')));
 
   Future<void> updateServerUserSettings(
       String serverId, Map<String, dynamic> patch) async {
@@ -1628,8 +1636,10 @@ class FlackleClient {
     required String contentType,
     String method = 'POST',
     Map<String, String> extraFields = const {},
+    bool retryCsrf = true,
   }) async {
     await _ensureCsrf();
+    _absorbBrowserCookies();
     final uri = Uri.parse('$baseUrl$path');
     final request = http.MultipartRequest(method, uri);
     request.headers.addAll({
@@ -1637,6 +1647,11 @@ class FlackleClient {
       'X-Requested-With': 'XMLHttpRequest',
       'Origin': baseUrl,
       'Referer': '$baseUrl/app',
+      if (!kIsWeb && _cookies.isNotEmpty)
+        'Cookie': _cookies.entries
+            .where((entry) => entry.value.isNotEmpty)
+            .map((entry) => '${entry.key}=${entry.value}')
+            .join('; '),
       if (_accessToken?.isNotEmpty == true)
         'Authorization': 'Bearer $_accessToken',
       if (_csrfToken?.isNotEmpty == true) 'X-CSRF-Token': _csrfToken!,
@@ -1657,6 +1672,21 @@ class FlackleClient {
       throw const FlackleException('The upload timed out.');
     }
     _absorbCookies(response);
+    final rotatedCsrf = asStringOrNull(response.headers['x-csrf-token']);
+    if (rotatedCsrf != null) _csrfToken = rotatedCsrf;
+    if (response.statusCode == 403 && retryCsrf && _isCsrfFailure(response)) {
+      await _ensureCsrf(force: true);
+      return _upload(
+        path,
+        field: field,
+        fileName: fileName,
+        bytes: bytes,
+        contentType: contentType,
+        method: method,
+        extraFields: extraFields,
+        retryCsrf: false,
+      );
+    }
     return _requireSuccess(response);
   }
 

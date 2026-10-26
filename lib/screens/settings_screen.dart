@@ -736,13 +736,12 @@ class _NotificationsTab extends StatelessWidget {
                         'notification_level': value,
                       });
                       final current = state.serverSettings[server.id];
-                      state.serverSettings[server.id] = ServerUserSettings(
-                        serverId: server.id,
-                        notificationLevel: value,
-                        lastViewedChannelId: current?.lastViewedChannelId,
-                        collapsedCategories:
-                            current?.collapsedCategories ?? const [],
-                      );
+                      state.serverSettings[server.id] = current == null
+                          ? ServerUserSettings(
+                              serverId: server.id,
+                              notificationLevel: value,
+                            )
+                          : current.copyWith(notificationLevel: value);
                     } catch (failure) {
                       if (context.mounted)
                         showAppToast(context, failure.toString());
