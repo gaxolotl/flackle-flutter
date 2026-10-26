@@ -4,6 +4,10 @@ A native-feeling Flutter client for [Flackle](https://flackle.com), targeting An
 
 This is an unofficial personal client. It is not affiliated with Flackle or Folkward LLC.
 
+## Download
+
+See [Releases](https://github.com/gaxolotl/flackle-flutter/releases) for the universal Android APK and the unsigned iOS IPA.
+
 ## Features
 
 - Sign in, MFA/backup-code login, session restore, and secure refresh-token storage.
