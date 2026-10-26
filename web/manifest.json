@@ -1,0 +1,11 @@
+﻿{
+  "name": "Flackle",
+  "short_name": "Flackle",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#08080b",
+  "theme_color": "#08080b",
+  "description": "A native-feeling client for Flackle.",
+  "orientation": "any",
+  "prefer_related_applications": false
+}

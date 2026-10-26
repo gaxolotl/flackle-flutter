@@ -1,0 +1,89 @@
+# Flackle Mobile
+
+A native-feeling Flutter client for [Flackle](https://flackle.com), targeting Android and iOS. The same codebase also builds for web and desktop.
+
+This is an unofficial personal client. It is not affiliated with Flackle or Folkward LLC.
+
+## Features
+
+- Sign in, MFA/backup-code login, session restore, and secure refresh-token storage.
+- Servers, categories, channels, DMs, and group DMs.
+- Live gateway updates: messages, edits, deletes, reactions, typing, presence, member changes, channels and conversations.
+- Mentions and replies with `@` / `#` autocomplete, including mentionable roles.
+- Full message history with older-message pagination, image/attachment embeds, replies, reactions, editing and deleting.
+- Media saving to your Flackle saved-media collection.
+- GIF picker powered by KLIPY, with trending and search tabs, using Flackle's `/api/gifs` configuration.
+- Profile editor for avatar, banner and display name.
+- Android notifications for mentions, `@everyone`, replies and direct messages, with **Mark as read** and inline **Reply** actions.
+- Android foreground service keeps the gateway connected while the app is closed or in the background.
+- Notification history is persisted and restored in the You tab.
+- Light/dark themes, accent colours, density and text-size preferences, plus a custom typing indicator (text and up to three emojis).
+
+## Requirements
+
+- Flutter **3.47.8** or newer (Dart 3.13+).
+- Android SDK 36, JDK 17+.
+- iOS builds require macOS, Xcode and CocoaPods.
+- For web development, the optional same-origin proxy in `scripts/real-proxy.mjs`.
+
+## Run
+
+```sh
+flutter pub get
+flutter analyze
+flutter run
+```
+
+### Android
+
+```sh
+flutter build apk --release
+```
+
+The release APK is written to `build/app/outputs/flutter-apk/app-release.apk`. The build uses the debug signing key unless `android/key.properties` is provided.
+
+### Web (development proxy)
+
+```sh
+flutter build web --release \
+  --dart-define=FLACKLE_BASE_URL=http://127.0.0.1:8787 \
+  --dart-define=FLACKLE_MEDIA_PROXY=/media?url=
+node scripts/real-proxy.mjs
+```
+
+### iOS
+
+On macOS:
+
+```sh
+flutter build ios --release --no-codesign
+```
+
+A signed IPA requires an Apple Developer certificate and provisioning profile. Unsigned builds can be packaged for inspection or sideloading with your own signing tooling.
+
+## Notifications
+
+Android 13+ requires notification permission. The app requests it on first launch. Real-time notifications while the app is closed are provided by a foreground service and therefore show a low-priority "Flackle is listening" notification. If Android force-stops the app or the OEM kills the service, the gateway cannot receive messages; guaranteed delivery in that state would require server-side push (FCM), which Flackle does not expose publicly.
+
+## Project layout
+
+```text
+lib/
+  core/        API client, gateway, models, state, preferences, notifications
+  screens/     Login, workspace, chat, settings, profile, channel and DM UI
+  ui/          Shared widgets, icons, emoji and theme helpers
+android/       Android host project
+ios/           iOS host project
+web/           Web host project
+scripts/       Development proxy and asset helpers
+```
+
+## Security and privacy
+
+- Credentials are entered directly into Flackle's API and are never sent anywhere else by this app.
+- Session tokens are stored with `flutter_secure_storage` where available, with a SharedPreferences fallback for platforms without a keyring.
+- Never use another person's credentials or perform account actions without their permission.
+
+## Disclaimer
+
+Flackle, its name, branding, and services belong to Folkward LLC. This project is an independent client and is not endorsed by or affiliated with Flackle.

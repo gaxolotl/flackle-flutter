@@ -1,0 +1,58 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+coverage/
+*.iml
+
+# Generated platform files
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/key.properties
+android/**/build/
+android/app/debug/
+android/app/profile/
+android/app/release/
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+ios/Flutter/App.framework
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+macos/Pods/
+macos/Flutter/Generated.xcconfig
+macos/Flutter/ephemeral/
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+
+# Packaging artifacts
+dist/
+shots/
+*.apk
+*.aab
+*.ipa
+*.app
+*.dmg
+*.zip
+*.log
+
+# Local tooling
+.openchamber/
+.sentry-native/
+scripts/node_modules/
+node_modules/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
