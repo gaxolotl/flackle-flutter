@@ -393,6 +393,8 @@ class _ChatViewState extends State<ChatView> {
           text,
           attachments: List.of(_attachments),
           replyTo: _reply?.id,
+          suppressEmbeds:
+              _prefs.composeAutoEmbeds ? const [] : suppressEmbedUrls(text),
         );
         setState(() {
           _composer.clear();
@@ -453,6 +455,14 @@ class _ChatViewState extends State<ChatView> {
       allowGifs: true,
       loadGifs: (query, page) =>
           _state.client.fetchGifs(query: query, page: page),
+      gifActions: GifLibraryActions(
+        load: () => _state.client.fetchGifLibrary(),
+        save: (gif, folderId) => _state.client.saveGif(gif, folderId: folderId),
+        unsave: (gif, folderId) =>
+            _state.client.unsaveGif(gif, folderId: folderId),
+        createFolder: (name) => _state.client.createGifFolder(name),
+        deleteFolder: (id) => _state.client.deleteGifFolder(id),
+      ),
     );
     if (emoji == null) return;
     final selection = _composer.selection;
@@ -466,6 +476,75 @@ class _ChatViewState extends State<ChatView> {
     );
     _focus.requestFocus();
     _onComposerChanged(next);
+  }
+
+  void _formatSelection(String marker) {
+    final text = _composer.text;
+    final selection = _composer.selection;
+    final start = selection.isValid ? selection.start : text.length;
+    final end = selection.isValid ? selection.end : text.length;
+    final selected = text.substring(start, end);
+    final insertion = '$marker$selected$marker';
+    final next = text.replaceRange(start, end, insertion);
+    final cursor =
+        selected.isEmpty ? start + marker.length : start + insertion.length;
+    _composer.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: cursor),
+    );
+    _onComposerChanged(next);
+    _focus.requestFocus();
+  }
+
+  Widget _formatButton(
+    BuildContext context, {
+    required String tooltip,
+    required IconData icon,
+    required String marker,
+    required bool enabled,
+  }) {
+    return IconButton(
+      onPressed: enabled ? () => _formatSelection(marker) : null,
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+      padding: EdgeInsets.zero,
+      icon: Icon(icon, size: 17),
+    );
+  }
+
+  Widget _embedsToggle(BuildContext context, AppState state) {
+    final c = context.c;
+    final enabled = state.prefs.composeAutoEmbeds;
+    return Tooltip(
+      message: enabled ? 'Disable embeds' : 'Enable embeds',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(7),
+        onTap: () => state.prefs.setComposeAutoEmbeds(!enabled),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                enabled ? Icons.link_rounded : Icons.link_off_rounded,
+                size: 16,
+                color: enabled ? c.accent : c.muted,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Embeds',
+                style: context.label(
+                  10.5,
+                  weight: FontWeight.w600,
+                  color: enabled ? c.accent : c.muted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _startReply(Message message) {
@@ -512,6 +591,11 @@ class _ChatViewState extends State<ChatView> {
     _menuOpen.add(message.id);
     final state = _state;
     final mine = message.author?.id == state.me?.id;
+    final removableEmbeds = message.embeds
+        .where((embed) => embed.isLinkPreview && embed.url != null)
+        .map((embed) => embed.url!)
+        .toSet()
+        .toList();
     await showAppMenu(context, title: 'Message actions', entries: [
       MenuEntry(
         label: 'Add reaction',
@@ -530,6 +614,25 @@ class _ChatViewState extends State<ChatView> {
       if (mine)
         MenuEntry(
             label: 'Edit', icon: 'pencil', run: () => _startEdit(message)),
+      if (mine && removableEmbeds.isNotEmpty)
+        MenuEntry(
+          label: removableEmbeds.length == 1
+              ? 'Remove link preview'
+              : 'Remove link previews',
+          icon: 'link',
+          run: () async {
+            try {
+              for (final url in removableEmbeds) {
+                await state.removeLinkPreview(message, url);
+              }
+              if (context.mounted) {
+                showAppToast(context, 'Link preview removed.');
+              }
+            } catch (failure) {
+              if (context.mounted) showAppToast(context, failure.toString());
+            }
+          },
+        ),
       if (_canDelete(message))
         MenuEntry(
           label: 'Delete',
@@ -590,6 +693,15 @@ class _ChatViewState extends State<ChatView> {
   Future<void> _quickReact(Message message, String emoji) async {
     try {
       await _state.toggleReaction(message, emoji);
+    } catch (failure) {
+      if (mounted) showAppToast(context, failure.toString());
+    }
+  }
+
+  Future<void> _removeLinkPreview(Message message, String url) async {
+    try {
+      await _state.removeLinkPreview(message, url);
+      if (mounted) showAppToast(context, 'Link preview removed.');
     } catch (failure) {
       if (mounted) showAppToast(context, failure.toString());
     }
@@ -1019,6 +1131,7 @@ class _ChatViewState extends State<ChatView> {
         final inlineImage = _inlineImageLink(message.content);
         final contentIsOnlyLink =
             inlineImage != null && message.content.trim() == inlineImage;
+        final mine = message.author?.id == state.me?.id;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1164,10 +1277,20 @@ class _ChatViewState extends State<ChatView> {
                                     padding: const EdgeInsets.only(top: 7),
                                     child: _attachment(context, attachment),
                                   ),
-                                for (final embed in message.embeds)
+                                for (final embed in message.embeds.where(
+                                    (embed) => _shouldShowEmbed(state, embed)))
                                   Padding(
                                     padding: const EdgeInsets.only(top: 7),
-                                    child: _embed(context, embed),
+                                    child: _embed(
+                                      context,
+                                      embed,
+                                      onRemove: mine &&
+                                              embed.isLinkPreview &&
+                                              embed.url != null
+                                          ? () => _removeLinkPreview(
+                                              message, embed.url!)
+                                          : null,
+                                    ),
                                   ),
                                 if (message.editedAt != null)
                                   Padding(
@@ -1577,9 +1700,22 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Widget _embed(BuildContext context, Embed embed) {
+  bool _shouldShowEmbed(AppState state, Embed embed) {
+    if (embed.isSuppressed || embed.isEmpty) return false;
+    if (!state.prefs.linkPreviews && embed.isLinkPreview) return false;
+    return true;
+  }
+
+  Widget _embed(
+    BuildContext context,
+    Embed embed, {
+    VoidCallback? onRemove,
+  }) {
+    if (embed.isSuppressed) return const SizedBox.shrink();
     if (embed.isInvite) return _inviteEmbed(context, embed);
-    final card = embed.hasCardContent ? _linkEmbed(context, embed) : null;
+    final card = embed.hasCardContent
+        ? _linkEmbed(context, embed, onRemove: onRemove)
+        : null;
     if (embed.nested.isEmpty) {
       return card ?? const SizedBox.shrink();
     }
@@ -1587,10 +1723,14 @@ class _ChatViewState extends State<ChatView> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (card != null) card,
-        for (final nested in embed.nested)
+        for (final nested in embed.nested.where((entry) => !entry.isSuppressed))
           Padding(
             padding: EdgeInsets.only(top: card == null ? 0 : 6),
-            child: _embed(context, nested),
+            child: _embed(
+              context,
+              nested,
+              onRemove: nested.isLinkPreview ? onRemove : null,
+            ),
           ),
       ],
     );
@@ -1683,83 +1823,127 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Widget _linkEmbed(BuildContext context, Embed embed) {
+  Widget _linkEmbed(
+    BuildContext context,
+    Embed embed, {
+    VoidCallback? onRemove,
+  }) {
     final c = context.c;
     final accent = parseHex(embed.color) ?? c.accent;
+    final site = embed.siteName ??
+        embed.providerName ??
+        Uri.tryParse(embed.url ?? '')?.host ??
+        '';
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 430),
-      child: Container(
-        padding: const EdgeInsets.all(11),
-        decoration: BoxDecoration(
-          color: c.panel,
-          borderRadius: BorderRadius.circular(9),
-          border: Border(left: BorderSide(color: accent, width: 3)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (embed.siteName != null)
-              Text(embed.siteName!.toUpperCase(),
-                  style: context.label(9,
-                      weight: FontWeight.w700,
-                      color: c.muted,
-                      letterSpacing: 0.7)),
-            if (embed.title != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 3),
-                child: InkWell(
-                  onTap: embed.url == null
-                      ? null
-                      : () => launchUrl(Uri.parse(embed.url!),
-                          mode: LaunchMode.externalApplication),
-                  child: Text(embed.title!,
-                      style: context.label(13,
-                          weight: FontWeight.w600, color: c.accent)),
-                ),
-              ),
-            if (embed.description != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(embed.description!,
-                    maxLines: 6,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.label(11.5, color: c.textDim, height: 1.45)),
-              ),
-            if (embed.imageUrl != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: InkWell(
-                  onTap: () => openImageViewer(context, embed.imageUrl!),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(7),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 260),
-                      child: AppImage(embed.imageUrl!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) =>
-                              const SizedBox.shrink()),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding:
+                EdgeInsets.fromLTRB(11, 11, onRemove == null ? 11 : 30, 11),
+            decoration: BoxDecoration(
+              color: c.panel,
+              borderRadius: BorderRadius.circular(9),
+              border: Border(left: BorderSide(color: accent, width: 3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (site.isNotEmpty)
+                  Text(site.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.label(9,
+                          weight: FontWeight.w700,
+                          color: c.muted,
+                          letterSpacing: 0.7)),
+                if (embed.title != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: InkWell(
+                      onTap: embed.url == null
+                          ? null
+                          : () => launchUrl(Uri.parse(embed.url!),
+                              mode: LaunchMode.externalApplication),
+                      child: Text(embed.title!,
+                          maxLines: 3,
+                          softWrap: true,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.label(13,
+                              weight: FontWeight.w600, color: c.accent)),
+                    ),
+                  ),
+                if (embed.description != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(embed.description!,
+                        maxLines: 6,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.label(11.5,
+                            color: c.textDim, height: 1.45)),
+                  ),
+                if (embed.imageUrl != null || embed.thumbnailUrl != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: InkWell(
+                      onTap: () => openImageViewer(
+                          context, (embed.imageUrl ?? embed.thumbnailUrl)!),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(7),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 260),
+                          child: AppImage(
+                              (embed.imageUrl ?? embed.thumbnailUrl)!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const SizedBox.shrink()),
+                        ),
+                      ),
+                    ),
+                  ),
+                for (final field in embed.fields)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (field.name != null)
+                          Text(field.name!,
+                              style:
+                                  context.label(11, weight: FontWeight.w700)),
+                        if (field.value != null)
+                          Text(field.value!,
+                              style: context.label(11.5,
+                                  color: c.textDim, height: 1.45)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (onRemove != null)
+            Positioned(
+              top: 3,
+              right: 3,
+              child: Tooltip(
+                message: 'Remove link preview',
+                child: Material(
+                  color: c.panel2,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: onRemove,
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child:
+                          Icon(Icons.close_rounded, size: 13, color: c.muted),
                     ),
                   ),
                 ),
               ),
-            for (final field in embed.fields)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (field.name != null)
-                      Text(field.name!,
-                          style: context.label(11, weight: FontWeight.w700)),
-                    if (field.value != null)
-                      Text(field.value!,
-                          style: context.label(11.5,
-                              color: c.textDim, height: 1.45)),
-                  ],
-                ),
-              ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -2049,6 +2233,43 @@ class _ChatViewState extends State<ChatView> {
                 ),
               ),
             if (_suggestions.isNotEmpty) _suggestionPopup(context),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 5),
+              child: Row(
+                children: [
+                  _formatButton(
+                    context,
+                    tooltip: 'Bold',
+                    icon: Icons.format_bold_rounded,
+                    marker: '**',
+                    enabled: canSend,
+                  ),
+                  _formatButton(
+                    context,
+                    tooltip: 'Italic',
+                    icon: Icons.format_italic_rounded,
+                    marker: '*',
+                    enabled: canSend,
+                  ),
+                  _formatButton(
+                    context,
+                    tooltip: 'Underline',
+                    icon: Icons.format_underline_rounded,
+                    marker: '__',
+                    enabled: canSend,
+                  ),
+                  _formatButton(
+                    context,
+                    tooltip: 'Strikethrough',
+                    icon: Icons.strikethrough_s_rounded,
+                    marker: '~~',
+                    enabled: canSend,
+                  ),
+                  const Spacer(),
+                  _embedsToggle(context, state),
+                ],
+              ),
+            ),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [

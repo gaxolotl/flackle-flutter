@@ -212,6 +212,42 @@ int _findClosing(String text, int start, String delimiter) {
   return index;
 }
 
+/// URLs Flackle should not turn into rich link cards. Media links still render
+/// inline, and message/invite links have their own dedicated cards.
+List<String> suppressEmbedUrls(String content) {
+  final seen = <String>{};
+  final urls = <String>[];
+  final matches = RegExp(r'https?://[^\s<>"{}|\\^`\[\]]+').allMatches(content);
+  for (final match in matches) {
+    var url = match.group(0)!;
+    while (url.isNotEmpty && '.,!?;:)]}'.contains(url[url.length - 1])) {
+      url = url.substring(0, url.length - 1);
+    }
+    if (url.length <= 8 || !seen.add(url)) continue;
+    final lower = url.toLowerCase();
+    if (_isMediaLink(lower) || _isMessageOrInviteLink(lower)) continue;
+    urls.add(url);
+    if (urls.length == 5) break;
+  }
+  return urls;
+}
+
+bool _isMediaLink(String url) {
+  final path = Uri.tryParse(url)?.path.toLowerCase() ?? url;
+  return RegExp(
+    r'\.(?:gif|png|jpe?g|webp|avif|heic|heif|svg|mp4|webm|mov|m4v|mp3|ogg|wav)$',
+  ).hasMatch(path);
+}
+
+bool _isMessageOrInviteLink(String url) {
+  if (RegExp(r'/invite/[A-Za-z0-9_-]{8}(?:[/?#]|$)').hasMatch(url)) {
+    return true;
+  }
+  return (url.contains('/app/channels/') ||
+          url.contains('/app/conversations/')) &&
+      url.contains('#message-');
+}
+
 String formatTime(DateTime? date, {bool use24h = false}) {
   if (date == null) return '';
   return DateFormat(use24h ? 'HH:mm' : 'h:mm a').format(date);

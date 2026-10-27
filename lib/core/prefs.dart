@@ -91,6 +91,7 @@ class AppPrefs extends ChangeNotifier {
     'showTyping': true,
     'shareTyping': true,
     'linkPreviews': true,
+    'composeAutoEmbeds': true,
     'characterCounter': true,
     'mentionAvatars': true,
     'quickReactions': true,
@@ -163,6 +164,10 @@ class AppPrefs extends ChangeNotifier {
 
   bool get linkPreviews => _read<bool>('linkPreviews');
   Future<void> setLinkPreviews(bool value) => _write('linkPreviews', value);
+
+  bool get composeAutoEmbeds => _read<bool>('composeAutoEmbeds');
+  Future<void> setComposeAutoEmbeds(bool value) =>
+      _write('composeAutoEmbeds', value);
 
   bool get characterCounter => _read<bool>('characterCounter');
   Future<void> setCharacterCounter(bool value) =>

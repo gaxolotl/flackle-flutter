@@ -387,8 +387,8 @@ Future<bool> confirmAction(
   final result = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text(title),
-      content: body == null ? null : Text(body),
+      title: Text(title, softWrap: true),
+      content: body == null ? null : Text(body, softWrap: true),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),

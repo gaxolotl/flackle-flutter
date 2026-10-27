@@ -444,6 +444,31 @@ Color? _parseColor(String? hex) {
   return parsed == null ? null : Color(0xFF000000 | parsed);
 }
 
+/// GIF library actions supplied by the chat layer so the picker stays
+/// independent from the API client.
+class GifLibraryActions {
+  const GifLibraryActions({
+    required this.load,
+    required this.save,
+    required this.unsave,
+    required this.createFolder,
+    required this.deleteFolder,
+  });
+
+  final Future<GifLibrary> Function() load;
+  final Future<void> Function(GifResult gif, String? folderId) save;
+  final Future<void> Function(GifResult gif, String? folderId) unsave;
+  final Future<GifFolder> Function(String name) createFolder;
+  final Future<void> Function(String folderId) deleteFolder;
+}
+
+class _GifFolderChoice {
+  const _GifFolderChoice(this.folderId, {this.create = false});
+
+  final String? folderId;
+  final bool create;
+}
+
 /// The emoji picker used by the composer and reaction menus.
 Future<String?> showEmojiPicker(
   BuildContext context, {
@@ -451,6 +476,7 @@ Future<String?> showEmojiPicker(
   bool allowSearch = true,
   bool allowGifs = false,
   Future<List<GifResult>> Function(String query, int page)? loadGifs,
+  GifLibraryActions? gifActions,
 }) async {
   if (EmojiIndex.categories.isEmpty) await EmojiIndex.load();
   if (!context.mounted) return null;
@@ -463,6 +489,7 @@ Future<String?> showEmojiPicker(
       allowSearch: allowSearch,
       allowGifs: allowGifs,
       loadGifs: loadGifs,
+      gifActions: gifActions,
     ),
   );
 }
@@ -473,12 +500,14 @@ class _EmojiPickerSheet extends StatefulWidget {
     required this.allowSearch,
     this.allowGifs = false,
     this.loadGifs,
+    this.gifActions,
   });
 
   final String title;
   final bool allowSearch;
   final bool allowGifs;
   final Future<List<GifResult>> Function(String query, int page)? loadGifs;
+  final GifLibraryActions? gifActions;
 
   @override
   State<_EmojiPickerSheet> createState() => _EmojiPickerSheetState();
@@ -496,8 +525,32 @@ class _EmojiPickerSheetState extends State<_EmojiPickerSheet> {
   int _gifPage = 1;
   int _gifRequest = 0;
   String _gifQuery = '';
+  String _gifCollection = 'trending';
   List<GifResult> _gifResults = const [];
+  GifLibrary? _gifLibrary;
+  bool _gifLibraryLoading = false;
+  String? _gifLibraryError;
   Timer? _gifDebounce;
+
+  bool get _showingKlipy =>
+      _gifQuery.trim().isNotEmpty || _gifCollection == 'trending';
+
+  Set<String> get _favouriteUrls => (_gifLibrary?.saved ?? const <GifResult>[])
+      .where((gif) => gif.folderId == null)
+      .map((gif) => gif.gifUrl)
+      .toSet();
+
+  List<GifResult> get _visibleGifs {
+    if (_showingKlipy) return _gifResults;
+    final folderId = _gifCollection == 'favourites' ? null : _gifCollection;
+    return (_gifLibrary?.saved ?? const <GifResult>[])
+        .where((gif) => gif.folderId == folderId)
+        .toList();
+  }
+
+  bool _isInFolder(GifResult gif, String? folderId) => (_gifLibrary?.saved ??
+          const <GifResult>[])
+      .any((entry) => entry.gifUrl == gif.gifUrl && entry.folderId == folderId);
 
   @override
   void dispose() {
@@ -529,7 +582,7 @@ class _EmojiPickerSheetState extends State<_EmojiPickerSheet> {
 
   Future<void> _loadGifs({bool reset = false}) async {
     final loader = widget.loadGifs;
-    if (loader == null) return;
+    if (loader == null || !_showingKlipy) return;
     if (!reset && _gifLoading) return;
     if (reset) {
       _gifPage = 1;
@@ -565,6 +618,7 @@ class _EmojiPickerSheetState extends State<_EmojiPickerSheet> {
   void _onGifQueryChanged(String value) {
     _gifDebounce?.cancel();
     setState(() => _gifQuery = value);
+    if (!_showingKlipy) return;
     _gifDebounce = Timer(const Duration(milliseconds: 350), () {
       _loadGifs(reset: true);
     });
@@ -573,58 +627,375 @@ class _EmojiPickerSheetState extends State<_EmojiPickerSheet> {
   void _selectTab(bool gifs) {
     if (_gifs == gifs) return;
     setState(() => _gifs = gifs);
-    if (gifs && _gifResults.isEmpty) _loadGifs(reset: true);
+    if (!gifs) return;
+    if (_gifLibrary == null) _loadGifLibrary();
+    if (_gifCollection == 'trending' && _gifResults.isEmpty) {
+      _loadGifs(reset: true);
+    }
+  }
+
+  void _selectCollection(String collection) {
+    setState(() {
+      _gifCollection = collection;
+      _gifQuery = '';
+      _gifSearch.clear();
+    });
+    if (collection == 'trending' && _gifResults.isEmpty) {
+      _loadGifs(reset: true);
+    }
   }
 
   void _pickGif(GifResult gif) {
     if (gif.gifUrl.isNotEmpty) Navigator.of(context).pop(gif.gifUrl);
   }
 
-  Widget _gifGrid(BuildContext context) {
-    final c = context.c;
-    if (_gifLoading && _gifResults.isEmpty) {
-      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+  Future<void> _loadGifLibrary() async {
+    final actions = widget.gifActions;
+    if (actions == null || _gifLibraryLoading) return;
+    setState(() {
+      _gifLibraryLoading = true;
+      _gifLibraryError = null;
+    });
+    try {
+      final library = await actions.load();
+      if (mounted) setState(() => _gifLibrary = library);
+    } catch (failure) {
+      if (mounted) setState(() => _gifLibraryError = failure.toString());
+    } finally {
+      if (mounted) setState(() => _gifLibraryLoading = false);
     }
-    if (_gifError != null && _gifResults.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Text(_gifError!,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: c.muted, fontSize: 12)),
+  }
+
+  void _rememberSaved(GifResult gif, String? folderId, bool saved) {
+    final current = _gifLibrary ?? const GifLibrary();
+    final entries = current.saved
+        .where((entry) =>
+            !(entry.gifUrl == gif.gifUrl && entry.folderId == folderId))
+        .toList();
+    if (saved) {
+      entries.insert(
+        0,
+        gif.copyWith(
+          folderId: folderId,
+          clearFolder: folderId == null,
+          savedAt: DateTime.now(),
         ),
       );
     }
-    if (_gifResults.isEmpty) {
+    setState(() {
+      _gifLibrary = GifLibrary(folders: current.folders, saved: entries);
+    });
+  }
+
+  Future<void> _toggleFavourite(GifResult gif) async {
+    final actions = widget.gifActions;
+    if (actions == null) return;
+    final saved = _isInFolder(gif, null);
+    try {
+      if (saved) {
+        await actions.unsave(gif, null);
+      } else {
+        await actions.save(gif, null);
+      }
+      _rememberSaved(gif, null, !saved);
+    } catch (failure) {
+      _showError(failure);
+    }
+  }
+
+  Future<void> _toggleFolder(GifResult gif, String? folderId) async {
+    final actions = widget.gifActions;
+    if (actions == null) return;
+    final saved = _isInFolder(gif, folderId);
+    try {
+      if (saved) {
+        await actions.unsave(gif, folderId);
+      } else {
+        await actions.save(gif, folderId);
+      }
+      _rememberSaved(gif, folderId, !saved);
+    } catch (failure) {
+      _showError(failure);
+    }
+  }
+
+  Future<void> _chooseFolder(GifResult gif) async {
+    final actions = widget.gifActions;
+    if (actions == null) return;
+    final c = context.c;
+    final folders = _gifLibrary?.folders ?? const <GifFolder>[];
+    final choice = await showModalBottomSheet<_GifFolderChoice>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: c.panel,
+      builder: (context) => SafeArea(
+        top: false,
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+              child: Text(
+                'Add to GIF folder',
+                style: TextStyle(
+                  fontFamily: 'Satoshi',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: c.text,
+                ),
+              ),
+            ),
+            ListTile(
+              dense: true,
+              leading: Icon(Icons.star_rounded,
+                  color: _isInFolder(gif, null) ? c.accent : c.muted),
+              title: const Text('Favourites'),
+              trailing: _isInFolder(gif, null)
+                  ? Icon(Icons.check_rounded, size: 18, color: c.accent)
+                  : null,
+              onTap: () =>
+                  Navigator.of(context).pop(const _GifFolderChoice(null)),
+            ),
+            for (final folder in folders)
+              ListTile(
+                dense: true,
+                leading: Icon(Icons.folder_outlined,
+                    color: _isInFolder(gif, folder.id) ? c.accent : c.muted),
+                title: Text(folder.name),
+                trailing: _isInFolder(gif, folder.id)
+                    ? Icon(Icons.check_rounded, size: 18, color: c.accent)
+                    : null,
+                onTap: () =>
+                    Navigator.of(context).pop(_GifFolderChoice(folder.id)),
+              ),
+            const Divider(height: 12),
+            ListTile(
+              dense: true,
+              leading: Icon(Icons.create_new_folder_outlined, color: c.accent),
+              title: Text('New folder', style: TextStyle(color: c.accent)),
+              onTap: () => Navigator.of(context)
+                  .pop(const _GifFolderChoice(null, create: true)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    if (choice.create) {
+      await _createFolderAndSave(gif);
+    } else {
+      await _toggleFolder(gif, choice.folderId);
+    }
+  }
+
+  Future<String?> _promptFolderName() async {
+    final existing = _gifLibrary?.folders.length ?? 0;
+    final controller = TextEditingController(text: 'Folder ${existing + 1}');
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New GIF folder'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          decoration: const InputDecoration(labelText: 'Folder name'),
+          onSubmitted: (value) => Navigator.of(context).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty) return null;
+    return trimmed;
+  }
+
+  Future<GifFolder?> _createFolder() async {
+    final actions = widget.gifActions;
+    if (actions == null) return null;
+    final name = await _promptFolderName();
+    if (name == null) return null;
+    try {
+      final folder = await actions.createFolder(name);
+      final current = _gifLibrary ?? const GifLibrary();
+      setState(() {
+        _gifLibrary = GifLibrary(
+          folders: [...current.folders, folder],
+          saved: current.saved,
+        );
+      });
+      return folder;
+    } catch (failure) {
+      _showError(failure);
+      return null;
+    }
+  }
+
+  Future<void> _createFolderAndSave(GifResult gif) async {
+    final folder = await _createFolder();
+    if (folder == null) return;
+    await _toggleFolder(gif, folder.id);
+    if (mounted) {
+      setState(() => _gifCollection = folder.id);
+    }
+  }
+
+  Future<void> _deleteFolder(GifFolder folder) async {
+    final actions = widget.gifActions;
+    if (actions == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${folder.name}?'),
+        content: const Text(
+          'The folder is removed. The GIFs stay in Favourites and other folders.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: context.c.danger),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await actions.deleteFolder(folder.id);
+      final current = _gifLibrary ?? const GifLibrary();
+      if (!mounted) return;
+      setState(() {
+        _gifLibrary = GifLibrary(
+          folders:
+              current.folders.where((entry) => entry.id != folder.id).toList(),
+          saved: current.saved
+              .where((entry) => entry.folderId != folder.id)
+              .toList(),
+        );
+        if (_gifCollection == folder.id) _gifCollection = 'trending';
+      });
+      if (_gifCollection == 'trending' && _gifResults.isEmpty) {
+        _loadGifs(reset: true);
+      }
+    } catch (failure) {
+      _showError(failure);
+    }
+  }
+
+  void _showError(Object failure) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(SnackBar(content: Text(failure.toString())));
+  }
+
+  Widget _gifGrid(BuildContext context) {
+    final c = context.c;
+    final showingKlipy = _showingKlipy;
+    final gifs = _visibleGifs;
+    final loading = showingKlipy
+        ? _gifLoading && _gifResults.isEmpty
+        : _gifLibraryLoading && gifs.isEmpty;
+    final error = showingKlipy ? _gifError : _gifLibraryError;
+    if (loading) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (error != null && gifs.isEmpty) {
       return Center(
-        child: Text('No GIFs found',
-            style: TextStyle(color: c.muted, fontSize: 13)),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(error,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: c.muted, fontSize: 12)),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: showingKlipy
+                    ? () => _loadGifs(reset: true)
+                    : _loadGifLibrary,
+                child: const Text('Try again'),
+              ),
+            ],
+          ),
+        ),
       );
     }
+    if (gifs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            _gifEmptyLabel,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: c.muted, fontSize: 13, height: 1.45),
+          ),
+        ),
+      );
+    }
+    final grid = GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 180,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+      ),
+      itemCount: gifs.length,
+      itemBuilder: (context, index) => _gifTile(gifs[index]),
+    );
+    if (!showingKlipy) return grid;
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
         if (notification.metrics.extentAfter < 280) _loadGifs();
         return false;
       },
-      child: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 180,
-          mainAxisSpacing: 6,
-          crossAxisSpacing: 6,
-        ),
-        itemCount: _gifResults.length,
-        itemBuilder: (context, index) {
-          final gif = _gifResults[index];
-          return InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => _pickGif(gif),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+      child: grid,
+    );
+  }
+
+  String get _gifEmptyLabel {
+    final query = _gifQuery.trim();
+    if (query.isNotEmpty) return 'No GIFs found for “$query”.';
+    if (_gifCollection == 'favourites') {
+      return 'No favourites yet. Tap the star on a GIF to keep it here.';
+    }
+    if (_gifCollection == 'trending') return 'No GIFs found.';
+    return 'Nothing in this folder yet. Use the folder button on any GIF.';
+  }
+
+  Widget _gifTile(GifResult gif) {
+    final c = context.c;
+    final favourite = _favouriteUrls.contains(gif.gifUrl);
+    final inFolder = (_gifLibrary?.saved ?? const <GifResult>[]).any(
+      (entry) => entry.gifUrl == gif.gifUrl && entry.folderId != null,
+    );
+    final preview = gif.previewUrl.isNotEmpty ? gif.previewUrl : gif.gifUrl;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: InkWell(
+              onTap: () => _pickGif(gif),
               child: ColoredBox(
                 color: c.panel2,
                 child: Image.network(
-                  mediaUrl(gif.previewUrl),
+                  mediaUrl(preview),
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                   errorBuilder: (_, __, ___) => Center(
@@ -634,8 +1005,116 @@ class _EmojiPickerSheetState extends State<_EmojiPickerSheet> {
                 ),
               ),
             ),
-          );
-        },
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _gifTileAction(
+                  icon: favourite
+                      ? Icons.star_rounded
+                      : Icons.star_border_rounded,
+                  tooltip: favourite
+                      ? 'Remove from favourites'
+                      : 'Add to favourites',
+                  active: favourite,
+                  onTap: () => _toggleFavourite(gif),
+                ),
+                const SizedBox(width: 4),
+                _gifTileAction(
+                  icon: inFolder
+                      ? Icons.folder_rounded
+                      : Icons.create_new_folder_outlined,
+                  tooltip: 'Add to folder',
+                  active: inFolder,
+                  onTap: () => _chooseFolder(gif),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _gifTileAction({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    bool active = false,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.58),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(5),
+            child: Icon(
+              icon,
+              size: 15,
+              color: active ? const Color(0xFFE0A13D) : Colors.white,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String get _gifCollectionLabel {
+    if (_gifQuery.trim().isNotEmpty) return 'Search results';
+    if (_gifCollection == 'trending') return 'Trending';
+    if (_gifCollection == 'favourites') return 'Favourites';
+    for (final folder in _gifLibrary?.folders ?? const <GifFolder>[]) {
+      if (folder.id == _gifCollection) return folder.name;
+    }
+    return 'GIF folder';
+  }
+
+  Widget _gifCollectionStrip(BuildContext context) {
+    final c = context.c;
+    final folders = _gifLibrary?.folders ?? const <GifFolder>[];
+    Widget chip(String id, String label, IconData icon, {GifFolder? folder}) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: GestureDetector(
+          onLongPress: folder == null ? null : () => _deleteFolder(folder),
+          child: ChoiceChip(
+            selected: _gifQuery.isEmpty && _gifCollection == id,
+            showCheckmark: false,
+            avatar: Icon(icon, size: 14),
+            label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            onSelected: (_) => _selectCollection(id),
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 38,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+        children: [
+          chip('trending', 'Trending', Icons.local_fire_department_outlined),
+          chip('favourites', 'Favourites', Icons.star_border_rounded),
+          for (final folder in folders)
+            chip(folder.id, folder.name, Icons.folder_outlined, folder: folder),
+          if (_gifLibrary != null && folders.length < 50)
+            ActionChip(
+              avatar: Icon(Icons.create_new_folder_outlined,
+                  size: 14, color: c.accent),
+              label: Text('New folder', style: TextStyle(color: c.accent)),
+              onPressed: _createFolder,
+              visualDensity: VisualDensity.compact,
+            ),
+        ],
       ),
     );
   }
@@ -706,7 +1185,7 @@ class _EmojiPickerSheetState extends State<_EmojiPickerSheet> {
             ),
           if (_gifs)
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
               child: TextField(
                 controller: _gifSearch,
                 autocorrect: false,
@@ -746,6 +1225,19 @@ class _EmojiPickerSheetState extends State<_EmojiPickerSheet> {
               ),
             ),
           ],
+          if (_gifs) _gifCollectionStrip(context),
+          if (_gifs)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _gifCollectionLabel,
+                  style: context.label(10,
+                      color: c.muted, weight: FontWeight.w600),
+                ),
+              ),
+            ),
           const SizedBox(height: 6),
           Expanded(
             child: _gifs

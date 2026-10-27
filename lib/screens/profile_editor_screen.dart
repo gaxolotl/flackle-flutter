@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../core/models.dart';
 import '../core/media.dart';
 import '../core/state.dart';
 import '../core/theme.dart';

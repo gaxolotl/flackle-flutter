@@ -4,6 +4,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
 
 import 'api.dart';
+import 'format.dart';
 import 'models.dart';
 import 'notification_store.dart';
 import 'permissions.dart';
@@ -76,6 +77,7 @@ class AppState extends ChangeNotifier {
   Timer? _unreadRefresh;
   final Set<String> _loadingMembers = {};
   final Set<String> _loadingRoles = {};
+  final Set<String> _previewLoads = {};
 
   bool _disposed = false;
 
@@ -452,6 +454,7 @@ class AppState extends ChangeNotifier {
         if (author != null) userCache[author.id] = author;
       }
       notifyListeners();
+      _schedulePreviewBackfill(visible);
       final last = visible.isEmpty ? null : visible.last;
       if (last != null) {
         unawaited(client.markRead(target, last.id));
@@ -524,6 +527,7 @@ class AppState extends ChangeNotifier {
     String content, {
     List<Attachment> attachments = const [],
     String? replyTo,
+    List<String> suppressEmbeds = const [],
   }) async {
     final target = active;
     if (target == null) return;
@@ -539,15 +543,27 @@ class AppState extends ChangeNotifier {
       sender: me,
       senderId: me?.id,
       attachments: attachments,
+      embeds: suppressEmbeds
+          .map((url) => Embed(url: url, type: 'suppressed'))
+          .toList(),
       replyTo: replyTo == null ? null : _replyFor(replyTo),
       pending: true,
     );
     messages = [...messages, optimistic];
     notifyListeners();
     try {
-      final message = await client.sendMessage(target, content,
-          attachments: attachments, replyTo: replyTo, nonce: nonce);
+      final message = await client.sendMessage(
+        target,
+        content,
+        attachments: attachments,
+        replyTo: replyTo,
+        nonce: nonce,
+        suppressEmbeds: suppressEmbeds,
+      );
       _replacePending(nonce, message);
+      final merged = messages.firstWhereOrNull(
+          (entry) => entry.nonce == nonce || entry.id == message.id);
+      if (merged != null) unawaited(_loadLinkPreviews(merged));
     } catch (failure) {
       messages = messages
           .map((entry) => entry.nonce == nonce ? _markFailed(entry) : entry)
@@ -639,13 +655,131 @@ class AppState extends ChangeNotifier {
             ? entry.copyWith(content: trimmed, editedAt: DateTime.now())
             : entry)
         .toList();
+    final updated =
+        messages.firstWhereOrNull((entry) => entry.id == message.id);
     notifyListeners();
     try {
       await client.editMessage(target, message.id, trimmed);
+      if (updated != null) unawaited(_loadLinkPreviews(updated));
     } catch (failure) {
       messages = previous;
       notifyListeners();
       rethrow;
+    }
+  }
+
+  Future<void> removeLinkPreview(Message message, String url) async {
+    final target = active;
+    if (target == null || message.id.startsWith('local-')) return;
+    final previous = messages;
+    messages = messages
+        .map((entry) => entry.id == message.id
+            ? entry.copyWith(
+                embeds: entry.embeds
+                    .map((embed) => _suppressEmbedUrl(embed, url))
+                    .toList(),
+              )
+            : entry)
+        .toList();
+    notifyListeners();
+    try {
+      await client.removeMessageEmbed(target, message.id, url);
+    } catch (failure) {
+      messages = previous;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Embed _suppressEmbedUrl(Embed embed, String url) {
+    if (embed.url == url && (embed.isLinkPreview || embed.isSuppressed)) {
+      return Embed(url: url, type: 'suppressed');
+    }
+    if (embed.nested.isEmpty) return embed;
+    return embed.copyWith(
+      nested:
+          embed.nested.map((nested) => _suppressEmbedUrl(nested, url)).toList(),
+    );
+  }
+
+  void _collectEmbedUrls(Embed embed, Set<String> urls) {
+    final url = embed.url;
+    if (url != null && url.isNotEmpty) urls.add(url);
+    for (final nested in embed.nested) {
+      _collectEmbedUrls(nested, urls);
+    }
+  }
+
+  Future<void> _loadLinkPreviews(Message message) async {
+    if (_disposed || !prefs.linkPreviews) return;
+    final target = active;
+    if (target == null ||
+        message.id.isEmpty ||
+        message.id.startsWith('local-') ||
+        message.id.startsWith('pending-') ||
+        message.type == 'system') {
+      return;
+    }
+    final urls = suppressEmbedUrls(message.content);
+    if (urls.isEmpty) return;
+    final known = <String>{};
+    for (final embed in message.embeds) {
+      _collectEmbedUrls(embed, known);
+    }
+    final missing = urls.where((url) => !known.contains(url)).take(5).toList();
+    if (missing.isEmpty) return;
+    final key = '${message.id}:${missing.join('|')}';
+    if (!_previewLoads.add(key)) return;
+    try {
+      final tokens = <String>[];
+      final previews = <Embed>[];
+      for (final url in missing) {
+        try {
+          final data = await client.createLinkPreview(url);
+          final token = asStringOrNull(data['token']);
+          final preview = asMap(data['preview']);
+          if (token == null || preview.isEmpty) continue;
+          final embed = Embed.fromJson(preview);
+          if (embed.isEmpty) continue;
+          tokens.add(token);
+          previews.add(embed);
+        } catch (_) {
+          // A single unreachable preview should not block the others.
+        }
+      }
+      if (tokens.isEmpty || _disposed) return;
+      await client.updateMessageEmbeds(target, message.id, tokens);
+      if (_disposed) return;
+      final index = messages.indexWhere((entry) => entry.id == message.id);
+      if (index == -1) return;
+      final current = messages[index];
+      final currentUrls = <String>{};
+      for (final embed in current.embeds) {
+        _collectEmbedUrls(embed, currentUrls);
+      }
+      final contentUrls = suppressEmbedUrls(current.content).toSet();
+      final additions = previews
+          .where((embed) =>
+              contentUrls.contains(embed.url) &&
+              !currentUrls.contains(embed.url))
+          .toList();
+      if (additions.isEmpty) return;
+      messages = List.of(messages)
+        ..[index] = current.copyWith(embeds: [...current.embeds, ...additions]);
+      notifyListeners();
+    } finally {
+      _previewLoads.remove(key);
+    }
+  }
+
+  void _schedulePreviewBackfill(List<Message> list) {
+    var count = 0;
+    for (final message in list.reversed) {
+      if (count >= 8) break;
+      if (message.embeds.isNotEmpty) continue;
+      if (suppressEmbedUrls(message.content).isEmpty) continue;
+      count += 1;
+      unawaited(_loadLinkPreviews(message));
     }
   }
 
@@ -1080,6 +1214,7 @@ class AppState extends ChangeNotifier {
         messages = List.of(messages)..[index] = message;
       }
       notifyListeners();
+      unawaited(_loadLinkPreviews(message));
       unawaited(client.markRead(active!, message.id));
       if (active!.isChannel) unread.remove(channelId);
     } else if (serverId != null && channelId != null) {

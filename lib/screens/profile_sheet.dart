@@ -505,6 +505,7 @@ class _ProfileSheetState extends State<ProfileSheet> {
           padding: const EdgeInsets.only(top: 16),
           child: Text(
             block.content ?? '',
+            softWrap: true,
             style: context.display(
               block.level == 1
                   ? 22
@@ -517,10 +518,15 @@ class _ProfileSheetState extends State<ProfileSheet> {
         );
       case 'text':
       case 'about':
+      case 'faq':
+      case 'qa':
         return Padding(
           padding: const EdgeInsets.only(top: 10),
-          child: Text(block.content ?? '',
-              style: context.label(13, color: c.textDim, height: 1.55)),
+          child: Text(
+            block.content ?? '',
+            softWrap: true,
+            style: context.label(13, color: c.textDim, height: 1.55),
+          ),
         );
       case 'social':
         return Padding(
@@ -556,7 +562,8 @@ class _ProfileSheetState extends State<ProfileSheet> {
                 const SizedBox(width: 7),
                 Expanded(
                   child: Text(block.content ?? block.url ?? '',
-                      maxLines: 1,
+                      maxLines: 2,
+                      softWrap: true,
                       overflow: TextOverflow.ellipsis,
                       style: context.label(12.5, color: c.accent)),
                 ),
@@ -574,7 +581,16 @@ class _ProfileSheetState extends State<ProfileSheet> {
           ),
         );
       default:
-        return const SizedBox.shrink();
+        final content = block.content?.trim() ?? '';
+        if (content.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Text(
+            content,
+            softWrap: true,
+            style: context.label(13, color: c.textDim, height: 1.55),
+          ),
+        );
     }
   }
 }

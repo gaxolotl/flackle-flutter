@@ -16,10 +16,12 @@ See [Releases](https://github.com/gaxolotl/flackle-flutter/releases) for the uni
 - Role-grouped member lists with hoisted role sections and role icons next to member names.
 - Live gateway updates: messages, edits, deletes, reactions, typing, presence, member changes, channels and conversations.
 - Mentions and replies with `@` / `#` autocomplete, including mentionable roles.
-- Full message history with older-message pagination, image/attachment embeds, replies, reactions, editing and deleting.
+- Full message history with older-message pagination, link previews, image/attachment embeds, replies, reactions, editing and deleting.
+- Remove link previews from your own messages for everyone; the removal survives later edits.
+- An always-visible formatting bar with bold, italic, underline, strikethrough and an embeds toggle.
 - Composer drafts are kept per channel or DM when you leave before sending.
 - Media saving to your Flackle saved-media collection.
-- GIF picker powered by KLIPY, with trending and search tabs, using Flackle's `/api/gifs` configuration.
+- GIF picker powered by KLIPY, with trending, search, favourites and custom GIF folders.
 - Profile editor for avatar, banner and display name.
 - Android notifications for mentions, `@everyone`, replies and direct messages, with **Mark as read** and inline **Reply** actions.
 - Android foreground service keeps the gateway connected while the app is closed or in the background.

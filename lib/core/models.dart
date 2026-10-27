@@ -241,21 +241,56 @@ class Embed {
 
   bool get isInvite => kind != null && (serverName != null || code != null);
 
+  bool get isSuppressed => type == 'suppressed';
+
+  bool get isLinkPreview =>
+      !isSuppressed &&
+      url != null &&
+      (type == 'link' || type == 'twitter' || type == null);
+
   bool get hasCardContent =>
-      (title?.isNotEmpty ?? false) ||
-      (description?.isNotEmpty ?? false) ||
-      imageUrl != null ||
-      thumbnailUrl != null ||
-      fields.isNotEmpty;
+      !isSuppressed &&
+      ((title?.isNotEmpty ?? false) ||
+          (description?.isNotEmpty ?? false) ||
+          imageUrl != null ||
+          thumbnailUrl != null ||
+          fields.isNotEmpty);
 
   bool get isEmpty => !isInvite && !hasCardContent && nested.isEmpty;
 
+  Embed copyWith({List<Embed>? nested}) => Embed(
+        url: url,
+        title: title,
+        description: description,
+        type: type,
+        color: color,
+        siteName: siteName,
+        providerName: providerName,
+        imageUrl: imageUrl,
+        thumbnailUrl: thumbnailUrl,
+        videoUrl: videoUrl,
+        videoHlsUrl: videoHlsUrl,
+        faviconUrl: faviconUrl,
+        fields: fields,
+        kind: kind,
+        code: code,
+        serverId: serverId,
+        serverName: serverName,
+        serverIconUrl: serverIconUrl,
+        memberCount: memberCount,
+        presenceCount: presenceCount,
+        nested: nested ?? this.nested,
+      );
+
   factory Embed.fromJson(Map<String, dynamic> json) => Embed(
-        url: asStringOrNull(json['url']),
+        url: asStringOrNull(
+            json['url'] ?? json['providerUrl'] ?? json['titleUrl']),
         title: asStringOrNull(json['title']),
         description: asStringOrNull(json['description']),
         type: asStringOrNull(json['type']),
-        color: json['color'] == null ? null : '${json['color']}',
+        color: (json['color'] ?? json['accentColor']) == null
+            ? null
+            : '${json['color'] ?? json['accentColor']}',
         siteName: asStringOrNull(json['site_name'] ?? json['siteName']),
         providerName:
             asStringOrNull(json['provider_name'] ?? json['providerName']),
@@ -457,6 +492,8 @@ class Message {
     String? content,
     bool? isDeleted,
     DateTime? editedAt,
+    List<Attachment>? attachments,
+    List<Embed>? embeds,
     List<Reaction>? reactions,
     bool? pending,
     bool? failed,
@@ -476,8 +513,8 @@ class Message {
         senderUsername: senderUsername,
         senderDisplayName: senderDisplayName,
         senderAvatarUrl: senderAvatarUrl,
-        attachments: attachments,
-        embeds: embeds,
+        attachments: attachments ?? this.attachments,
+        embeds: embeds ?? this.embeds,
         replyTo: replyTo,
         reactions: reactions ?? this.reactions,
         mentionIds: mentionIds,
@@ -1421,22 +1458,49 @@ class TwoFactorSetup {
       );
 }
 
+class GifFolder {
+  const GifFolder({
+    required this.id,
+    required this.name,
+    this.iconUrl,
+    this.position,
+  });
+
+  final String id;
+  final String name;
+  final String? iconUrl;
+  final int? position;
+
+  factory GifFolder.fromJson(Map<String, dynamic> json) => GifFolder(
+        id: asString(json['id']),
+        name: asString(json['name'], 'GIF folder'),
+        iconUrl: asStringOrNull(json['icon_url']),
+        position: asIntOrNull(json['position']),
+      );
+}
+
 class GifResult {
   const GifResult({
     required this.id,
     required this.title,
     required this.gifUrl,
     required this.previewUrl,
+    this.videoUrl,
     this.width = 200,
     this.height = 200,
+    this.folderId,
+    this.savedAt,
   });
 
   final String id;
   final String title;
   final String gifUrl;
   final String previewUrl;
+  final String? videoUrl;
   final int width;
   final int height;
+  final String? folderId;
+  final DateTime? savedAt;
 
   factory GifResult.fromKlipy(Map<String, dynamic> json) {
     final files = asMap(json['file']);
@@ -1449,10 +1513,71 @@ class GifResult {
       title: asString(json['title'], 'GIF'),
       gifUrl: gifUrl,
       previewUrl: asStringOrNull(webp['url']) ?? gifUrl,
+      videoUrl: asStringOrNull(webp['url']) ?? gifUrl,
       width: asIntOrNull(webp['width']) ?? asIntOrNull(gif['width']) ?? 200,
       height: asIntOrNull(webp['height']) ?? asIntOrNull(gif['height']) ?? 200,
     );
   }
+
+  factory GifResult.fromSaved(Map<String, dynamic> json) {
+    final url = asStringOrNull(json['url']) ?? '';
+    return GifResult(
+      id: asStringOrNull(json['id']) ?? url,
+      title: asString(json['title'], 'GIF'),
+      gifUrl: url,
+      previewUrl: asStringOrNull(json['preview_url']) ?? url,
+      videoUrl: asStringOrNull(json['video_url']),
+      width: asIntOrNull(json['width']) ?? 200,
+      height: asIntOrNull(json['height']) ?? 200,
+      folderId: asStringOrNull(json['folder_id']),
+      savedAt: asDate(json['saved_at']),
+    );
+  }
+
+  GifResult copyWith({
+    String? folderId,
+    DateTime? savedAt,
+    bool clearFolder = false,
+  }) =>
+      GifResult(
+        id: id,
+        title: title,
+        gifUrl: gifUrl,
+        previewUrl: previewUrl,
+        videoUrl: videoUrl,
+        width: width,
+        height: height,
+        folderId: clearFolder ? null : folderId ?? this.folderId,
+        savedAt: savedAt ?? this.savedAt,
+      );
+
+  Map<String, dynamic> toSaveJson(String? folderId) => {
+        'url': gifUrl,
+        'preview_url': previewUrl,
+        if (videoUrl != null) 'video_url': videoUrl,
+        'width': width,
+        'height': height,
+        'folder_id': folderId,
+      };
+}
+
+class GifLibrary {
+  const GifLibrary({this.folders = const [], this.saved = const []});
+
+  final List<GifFolder> folders;
+  final List<GifResult> saved;
+
+  factory GifLibrary.fromJson(Map<String, dynamic> json) => GifLibrary(
+        folders: asList(json['folders'])
+            .whereType<Map>()
+            .map((value) => GifFolder.fromJson(asMap(value)))
+            .toList(),
+        saved: asList(json['saved'])
+            .whereType<Map>()
+            .map((value) => GifResult.fromSaved(asMap(value)))
+            .where((gif) => gif.gifUrl.isNotEmpty)
+            .toList(),
+      );
 }
 
 class MessagePage {

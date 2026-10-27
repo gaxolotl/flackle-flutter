@@ -572,6 +572,7 @@ class FlackleClient {
     List<Attachment> attachments = const [],
     String? replyTo,
     String? nonce,
+    List<String> suppressEmbeds = const [],
   }) async {
     if (content.trim().isEmpty && attachments.isEmpty) {
       throw const FlackleException(
@@ -590,6 +591,7 @@ class FlackleClient {
       if (attachments.isNotEmpty)
         'attachments': attachments.map((entry) => entry.toJson()).toList(),
       if (replyTo != null) 'reply_to_message_id': replyTo,
+      if (suppressEmbeds.isNotEmpty) 'suppress_embeds': suppressEmbeds,
     };
     try {
       _sendFrame({
@@ -717,8 +719,20 @@ class FlackleClient {
     String messageId,
     List<String> tokens,
   ) async =>
-      asMap(await _json('POST', '${target.messagesPath}/$messageId/embeds',
+      asMap(await _json('PUT', '${target.messagesPath}/$messageId/embeds',
           body: {'tokens': tokens}));
+
+  Future<void> removeMessageEmbed(
+    Target target,
+    String messageId,
+    String url,
+  ) async {
+    await _json(
+      'POST',
+      '${target.messagesPath}/$messageId/embeds/remove',
+      body: {'url': url},
+    );
+  }
 
   Future<String> fetchChannelPermissions(
       String serverId, String channelId) async {
@@ -1048,15 +1062,58 @@ class FlackleClient {
   String? _gifAppKey;
   String? _gifCustomerId;
 
-  Future<void> _ensureGifConfig() async {
-    if (_gifAppKey != null && _gifCustomerId != null) return;
+  Future<GifLibrary> fetchGifLibrary() async {
     final data = asMap(await _json('GET', '/api/gifs'));
     final klipy = asMap(data['klipy']);
     _gifAppKey = asStringOrNull(klipy['app_key']);
     _gifCustomerId = asStringOrNull(klipy['customer_id']);
+    return GifLibrary.fromJson(data);
+  }
+
+  Future<void> _ensureGifConfig() async {
+    if (_gifAppKey != null && _gifCustomerId != null) return;
+    await fetchGifLibrary();
     if (_gifAppKey == null || _gifCustomerId == null) {
       throw const FlackleException('Flackle did not return a GIF key.');
     }
+  }
+
+  Future<void> saveGif(GifResult gif, {String? folderId}) async {
+    await _json(
+      'POST',
+      '/api/gifs/save',
+      body: gif.toSaveJson(folderId),
+    );
+  }
+
+  Future<void> unsaveGif(GifResult gif, {String? folderId}) async {
+    await _json(
+      'POST',
+      '/api/gifs/unsave',
+      body: {'folder_id': folderId, 'url': gif.gifUrl},
+    );
+  }
+
+  Future<GifFolder> createGifFolder(String name) async {
+    final data = asMap(await _json(
+      'POST',
+      '/api/gifs/folders',
+      body: {'name': name.trim()},
+    ));
+    return GifFolder.fromJson(asMap(data['folder']));
+  }
+
+  Future<GifFolder> renameGifFolder(String folderId, String name) async {
+    final data = asMap(await _json(
+      'PATCH',
+      '/api/gifs/folders/$folderId',
+      body: {'name': name.trim()},
+    ));
+    return GifFolder.fromJson(asMap(data['folder']));
+  }
+
+  Future<void> deleteGifFolder(String folderId) async {
+    await _json('DELETE', '/api/gifs/folders/$folderId');
   }
 
   Future<List<GifResult>> fetchGifs({
