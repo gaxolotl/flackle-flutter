@@ -383,6 +383,22 @@ class MessageReply {
         senderAvatarUrl: asStringOrNull(json['sender_avatar_url']),
         deleted: asBool(json['deleted']),
       );
+
+  MessageReply copyWith({
+    String? content,
+    String? senderDisplayName,
+    String? senderAvatarUrl,
+    bool? deleted,
+  }) =>
+      MessageReply(
+        id: id,
+        content: content ?? this.content,
+        senderId: senderId,
+        senderUsername: senderUsername,
+        senderDisplayName: senderDisplayName ?? this.senderDisplayName,
+        senderAvatarUrl: senderAvatarUrl ?? this.senderAvatarUrl,
+        deleted: deleted ?? this.deleted,
+      );
 }
 
 class Message {
@@ -492,6 +508,8 @@ class Message {
     String? content,
     bool? isDeleted,
     DateTime? editedAt,
+    MessageReply? replyTo,
+    bool clearReply = false,
     List<Attachment>? attachments,
     List<Embed>? embeds,
     List<Reaction>? reactions,
@@ -515,7 +533,7 @@ class Message {
         senderAvatarUrl: senderAvatarUrl,
         attachments: attachments ?? this.attachments,
         embeds: embeds ?? this.embeds,
-        replyTo: replyTo,
+        replyTo: clearReply ? null : (replyTo ?? this.replyTo),
         reactions: reactions ?? this.reactions,
         mentionIds: mentionIds,
         mentionEveryone: mentionEveryone,
@@ -1275,6 +1293,44 @@ class ProfileBlock {
       );
 }
 
+class ProfileBadge {
+  const ProfileBadge({
+    required this.key,
+    required this.name,
+    this.description,
+    this.iconUrl,
+  });
+
+  final String key;
+  final String name;
+  final String? description;
+  final String? iconUrl;
+
+  factory ProfileBadge.fromJson(Map<String, dynamic> json) {
+    final key = asString(json['key'] ?? json['id'] ?? json['type']);
+    return ProfileBadge(
+      key: key,
+      name: asString(json['name'] ?? json['label'], key),
+      description: asStringOrNull(json['description']),
+      iconUrl: asStringOrNull(json['icon_url'] ?? json['icon']),
+    );
+  }
+
+  static ProfileBadge? fromValue(dynamic value) {
+    if (value is String && value.trim().isNotEmpty) {
+      return ProfileBadge(key: value.trim(), name: value.trim());
+    }
+    if (value is Map) return ProfileBadge.fromJson(asMap(value));
+    return null;
+  }
+
+  String get resolvedIconUrl {
+    final url = iconUrl;
+    if (url != null && url.isNotEmpty) return url;
+    return 'https://flackle.com/badges/$key-96.png';
+  }
+}
+
 class UserCard {
   const UserCard({
     required this.user,
@@ -1288,7 +1344,7 @@ class UserCard {
   final User user;
   final Member? member;
   final String? membership;
-  final List<dynamic> badges;
+  final List<ProfileBadge> badges;
   final List<ProfileBlock> blocks;
   final List<ProfileBlock> socials;
 
@@ -1298,7 +1354,10 @@ class UserCard {
             ? Member.fromJson(asMap(json['member']))
             : null,
         membership: asStringOrNull(json['membership']),
-        badges: asList(json['badges']),
+        badges: asList(json['badges'])
+            .map(ProfileBadge.fromValue)
+            .whereType<ProfileBadge>()
+            .toList(),
         blocks: asList(json['blocks'])
             .whereType<Map>()
             .map((value) => ProfileBlock.fromJson(asMap(value)))

@@ -179,8 +179,10 @@ void _parseMarkdown(String text, Set<RichStyle> styles, List<RichToken> out) {
         continue;
       }
     }
-    if (rest.startsWith('http://') || rest.startsWith('https://')) {
-      final match = RegExp(r'^https?://[^\s<>]+').firstMatch(rest);
+    final lowerRest = rest.toLowerCase();
+    if (lowerRest.startsWith('http://') || lowerRest.startsWith('https://')) {
+      final match =
+          RegExp(r'^https?://[^\s<>]+', caseSensitive: false).firstMatch(rest);
       if (match != null) {
         var url = match.group(0)!;
         while (url.isNotEmpty && '.,!?)"]}\''.contains(url[url.length - 1])) {
@@ -217,7 +219,8 @@ int _findClosing(String text, int start, String delimiter) {
 List<String> suppressEmbedUrls(String content) {
   final seen = <String>{};
   final urls = <String>[];
-  final matches = RegExp(r'https?://[^\s<>"{}|\\^`\[\]]+').allMatches(content);
+  final matches = RegExp(r'https?://[^\s<>"{}|\\^`\[\]]+', caseSensitive: false)
+      .allMatches(content);
   for (final match in matches) {
     var url = match.group(0)!;
     while (url.isNotEmpty && '.,!?;:)]}'.contains(url[url.length - 1])) {
@@ -232,6 +235,60 @@ List<String> suppressEmbedUrls(String content) {
   return urls;
 }
 
+/// A shareable Flackle URL that points at one message.
+class FlackleMessageLink {
+  const FlackleMessageLink({
+    required this.messageId,
+    this.serverId,
+    this.channelId,
+    this.conversationId,
+  });
+
+  final String messageId;
+  final String? serverId;
+  final String? channelId;
+  final String? conversationId;
+
+  bool get isChannel => serverId != null && channelId != null;
+
+  String get targetKey =>
+      isChannel ? 'g:$serverId:$channelId' : 'd:$conversationId';
+}
+
+/// Parses links in the form Flackle's "Copy message link" action produces.
+/// Returns null for ordinary web links that should open in the browser.
+FlackleMessageLink? parseFlackleMessageLink(String raw) {
+  final uri = Uri.tryParse(raw.trim());
+  if (uri == null) return null;
+  final host = uri.host.toLowerCase();
+  if (host.isNotEmpty && host != 'flackle.com' && host != 'www.flackle.com') {
+    return null;
+  }
+  final segments = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+  if (segments.length < 3 || segments.first != 'app') return null;
+  final fragment = uri.fragment;
+  final match = RegExp(r'^message-(\d+)$').firstMatch(fragment);
+  final messageId = match?.group(1) ??
+      uri.queryParameters['message_id'] ??
+      uri.queryParameters['message'];
+  if (messageId == null || messageId.isEmpty) return null;
+  if (segments[1] == 'channels' && segments.length >= 4) {
+    return FlackleMessageLink(
+      messageId: messageId,
+      serverId: segments[2],
+      channelId: segments[3],
+    );
+  }
+  if ((segments[1] == 'dms' || segments[1] == 'conversations') &&
+      segments.length >= 3) {
+    return FlackleMessageLink(
+      messageId: messageId,
+      conversationId: segments[2],
+    );
+  }
+  return null;
+}
+
 bool _isMediaLink(String url) {
   final path = Uri.tryParse(url)?.path.toLowerCase() ?? url;
   return RegExp(
@@ -244,6 +301,7 @@ bool _isMessageOrInviteLink(String url) {
     return true;
   }
   return (url.contains('/app/channels/') ||
+          url.contains('/app/dms/') ||
           url.contains('/app/conversations/')) &&
       url.contains('#message-');
 }

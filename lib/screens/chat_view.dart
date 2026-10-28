@@ -23,6 +23,7 @@ import 'channel_dialog.dart';
 import 'group_dm_sheet.dart';
 import 'member_panel.dart';
 import 'server_settings_screen.dart';
+import 'settings_screen.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({required this.target, super.key});
@@ -114,12 +115,17 @@ class _ChatViewState extends State<ChatView> {
   final _composer = TextEditingController();
   final _focus = FocusNode();
   Message? _reply;
+  bool _replyMention = true;
   Message? _editing;
   final List<Attachment> _attachments = [];
   bool _sending = false;
   bool _uploading = false;
   String? _hoveredId;
+  String? _highlightedId;
   String? _lastMessageId;
+  bool _jumpingToMessage = false;
+  Timer? _highlightTimer;
+  final Map<String, GlobalKey> _messageKeys = {};
   Timer? _typingTimer;
   Timer? _draftTimer;
   late final AppPrefs _prefs;
@@ -142,8 +148,37 @@ class _ChatViewState extends State<ChatView> {
     }
     _scroll.addListener(_onScroll);
     _ensureServerMembers();
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _jumpToBottom(animate: false));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final focus = _state.takeMessageFocusRequest(widget.target);
+      if (focus != null) {
+        unawaited(_awaitFocusRequest(focus));
+      } else {
+        _jumpToBottom(animate: false);
+      }
+    });
+  }
+
+  Future<void> _awaitFocusRequest(String messageId) async {
+    final key = widget.target.key;
+    for (var attempt = 0; attempt < 40; attempt++) {
+      if (!mounted || widget.target.key != key) return;
+      if (!_state.loadingMessages) break;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    if (!mounted || widget.target.key != key) return;
+    await _jumpToMessage(messageId);
+  }
+
+  void _consumePendingFocus() {
+    if (!mounted) return;
+    final focus = _state.takeMessageFocusRequest(widget.target);
+    if (focus == null) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _jumpToBottom(animate: false));
+    } else {
+      unawaited(_awaitFocusRequest(focus));
+    }
   }
 
   void _ensureServerMembers() {
@@ -161,9 +196,11 @@ class _ChatViewState extends State<ChatView> {
       _draftTimer?.cancel();
       unawaited(_prefs.setDraft(oldWidget.target.key, _composer.text));
       _reply = null;
+      _replyMention = true;
       _editing = null;
       _attachments.clear();
       _composer.clear();
+      _messageKeys.clear();
       final draft = _prefs.draft(widget.target.key);
       if (draft.isNotEmpty) {
         _composer.value = TextEditingValue(
@@ -175,8 +212,7 @@ class _ChatViewState extends State<ChatView> {
       _suggestions.clear();
       _suggestionStart = -1;
       _ensureServerMembers();
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _jumpToBottom(animate: false));
+      _consumePendingFocus();
     }
   }
 
@@ -184,6 +220,7 @@ class _ChatViewState extends State<ChatView> {
   void dispose() {
     _typingTimer?.cancel();
     _draftTimer?.cancel();
+    _highlightTimer?.cancel();
     unawaited(_prefs.setDraft(widget.target.key, _composer.text));
     _scroll.dispose();
     _composer.dispose();
@@ -389,10 +426,13 @@ class _ChatViewState extends State<ChatView> {
         _draftTimer?.cancel();
         unawaited(_prefs.clearDraft(widget.target.key));
       } else {
+        final replyingTo = _reply;
+        final mentionReply = _replyMention;
         await state.sendMessage(
           text,
           attachments: List.of(_attachments),
-          replyTo: _reply?.id,
+          replyTo: replyingTo?.id,
+          suppressReplyMention: replyingTo != null && !mentionReply,
           suppressEmbeds:
               _prefs.composeAutoEmbeds ? const [] : suppressEmbedUrls(text),
         );
@@ -400,6 +440,7 @@ class _ChatViewState extends State<ChatView> {
           _composer.clear();
           _attachments.clear();
           _reply = null;
+          _replyMention = true;
         });
         _draftTimer?.cancel();
         unawaited(_prefs.clearDraft(widget.target.key));
@@ -513,6 +554,12 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
+  Future<void> _openChatSettings() async {
+    await Navigator.of(context).push<void>(MaterialPageRoute(
+      builder: (_) => const SettingsScreen(initialTab: 2),
+    ));
+  }
+
   Widget _embedsToggle(BuildContext context, AppState state) {
     final c = context.c;
     final enabled = state.prefs.composeAutoEmbeds;
@@ -548,17 +595,29 @@ class _ChatViewState extends State<ChatView> {
   }
 
   void _startReply(Message message) {
+    final canMention =
+        widget.target.isChannel && message.author?.id != _state.me?.id;
     setState(() {
       _reply = message;
+      _replyMention = canMention && _prefs.replyMentionDefault;
       _editing = null;
     });
     _focus.requestFocus();
+  }
+
+  void _toggleReplyMention() {
+    final next = !_replyMention;
+    setState(() => _replyMention = next);
+    if (_prefs.replyPings == 'remember') {
+      unawaited(_prefs.setLastReplyMention(next));
+    }
   }
 
   void _startEdit(Message message) {
     setState(() {
       _editing = message;
       _reply = null;
+      _replyMention = true;
       _composer.text = message.content;
       _composer.selection =
           TextSelection.collapsed(offset: _composer.text.length);
@@ -869,7 +928,7 @@ class _ChatViewState extends State<ChatView> {
                                             color: context.c.muted)),
                                     onTap: () {
                                       Navigator.of(context).pop();
-                                      _scrollToMessage(message.id);
+                                      unawaited(_jumpToMessage(message.id));
                                     },
                                   );
                                 },
@@ -885,15 +944,134 @@ class _ChatViewState extends State<ChatView> {
     query.dispose();
   }
 
-  void _scrollToMessage(String messageId) {
+  Future<void> _jumpToMessage(String messageId) async {
+    if (messageId.isEmpty) return;
+    _jumpingToMessage = true;
+    try {
+      final found = await _state.jumpToMessage(messageId);
+      if (!mounted) return;
+      if (!found) {
+        showAppToast(context, 'That message is no longer available.');
+        return;
+      }
+      setState(() => _highlightedId = messageId);
+      _highlightTimer?.cancel();
+      _highlightTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _highlightedId = null);
+      });
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      await _scrollToMessage(messageId);
+    } finally {
+      _jumpingToMessage = false;
+    }
+  }
+
+  Future<void> _scrollToMessage(String messageId, {bool animate = true}) async {
     final chronological =
         _state.messages.indexWhere((message) => message.id == messageId);
     if (chronological == -1 || !_scroll.hasClients) return;
     final index = _state.messages.length - 1 - chronological;
     final approximate =
-        (index * 64.0).clamp(0.0, _scroll.position.maxScrollExtent).toDouble();
-    _scroll.animateTo(approximate,
-        duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+        (index * 74.0).clamp(0.0, _scroll.position.maxScrollExtent).toDouble();
+    if (animate && !_state.prefs.reduceMotion) {
+      await _scroll.animateTo(approximate,
+          duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+    } else {
+      _scroll.jumpTo(approximate);
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      final targetContext = _messageKeys[messageId]?.currentContext;
+      if (targetContext != null && targetContext.mounted) {
+        await Scrollable.ensureVisible(
+          targetContext,
+          alignment: 0.42,
+          duration: _state.prefs.reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      if (!mounted) return;
+    }
+  }
+
+  Future<void> _openUrl(String raw) async {
+    final link = parseFlackleMessageLink(raw);
+    if (link != null) {
+      await _openMessageLink(link);
+      return;
+    }
+    await launchUrl(Uri.parse(raw), mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _openMessageLink(FlackleMessageLink link) async {
+    final state = _state;
+    if (link.isChannel) {
+      final serverId = link.serverId!;
+      final channelId = link.channelId!;
+      final channel = state.channelById(serverId, channelId);
+      if (channel == null) {
+        if (mounted) showAppToast(context, 'That channel is unavailable.');
+        return;
+      }
+      final target = Target.channelView(
+        serverId: serverId,
+        serverName: state.serverById(serverId)?.name ?? 'Server',
+        channelId: channelId,
+        title: channel.name,
+        topic: channel.topic,
+        channelType: channel.type,
+        icon: channel.icon,
+        iconColor: channel.iconColor,
+      );
+      if (widget.target.key == target.key) {
+        await _jumpToMessage(link.messageId);
+        return;
+      }
+      state.requestMessageFocus(target, link.messageId);
+      if (MediaQuery.sizeOf(context).width < 760) {
+        await state.selectChannel(serverId, channel);
+        if (!mounted) return;
+        await Navigator.of(context).push<void>(MaterialPageRoute(
+          builder: (_) => ChatPage(target: target),
+        ));
+      } else {
+        await state.selectChannel(serverId, channel);
+      }
+      return;
+    }
+    final conversationId = link.conversationId;
+    if (conversationId == null) return;
+    final conversation = state.conversations
+        .where((entry) => entry.id == conversationId)
+        .firstOrNull;
+    if (conversation == null) {
+      if (mounted) showAppToast(context, 'That conversation is unavailable.');
+      return;
+    }
+    final target = Target.conversation(
+      conversationId,
+      title: conversation.titleFor(state.me?.id ?? ''),
+    );
+    if (widget.target.key == target.key) {
+      await _jumpToMessage(link.messageId);
+      return;
+    }
+    state.requestMessageFocus(target, link.messageId);
+    if (MediaQuery.sizeOf(context).width < 760) {
+      await state.openConversation(conversation);
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        builder: (_) => ChatPage(target: target),
+      ));
+    } else {
+      await state.openConversation(conversation);
+    }
   }
 
   @override
@@ -906,7 +1084,7 @@ class _ChatViewState extends State<ChatView> {
     if (last != null && last != _lastMessageId) {
       final wasNearBottom = _nearBottom;
       _lastMessageId = last;
-      if (wasNearBottom) {
+      if (wasNearBottom && !_jumpingToMessage) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottom());
       }
     }
@@ -1133,6 +1311,7 @@ class _ChatViewState extends State<ChatView> {
             inlineImage != null && message.content.trim() == inlineImage;
         final mine = message.author?.id == state.me?.id;
         return Column(
+          key: _messageKeys.putIfAbsent(message.id, () => GlobalKey()),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (showDate) _dateDivider(context, message.createdAt),
@@ -1147,9 +1326,11 @@ class _ChatViewState extends State<ChatView> {
                 child: Stack(
                   children: [
                     Container(
-                      color: _hoveredId == message.id
-                          ? c.hover
-                          : Colors.transparent,
+                      color: _highlightedId == message.id
+                          ? c.accent.withValues(alpha: 0.14)
+                          : _hoveredId == message.id
+                              ? c.hover
+                              : Colors.transparent,
                       padding: EdgeInsets.fromLTRB(
                         14,
                         state.prefs.compact ? 2 : 3,
@@ -1248,9 +1429,7 @@ class _ChatViewState extends State<ChatView> {
                                           }
                                         },
                                       ),
-                                      onOpenUrl: (url) => launchUrl(
-                                          Uri.parse(url),
-                                          mode: LaunchMode.externalApplication),
+                                      onOpenUrl: _openUrl,
                                       onOpenChannel: (id) {
                                         final serverId = state.active?.serverId;
                                         if (serverId == null) return;
@@ -1510,37 +1689,42 @@ class _ChatViewState extends State<ChatView> {
     final rawName = reply.authorName.trim();
     final authorLabel =
         rawName.isEmpty || rawName == '###' ? 'Unknown member' : rawName;
-    return Container(
-      margin: const EdgeInsets.only(top: 3, bottom: 2),
-      padding: const EdgeInsets.only(left: 8),
-      decoration: BoxDecoration(
-        border: Border(
-            left: BorderSide(color: c.accent.withValues(alpha: 0.6), width: 2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Reply to $authorLabel',
-              style: context.label(10.5,
-                  weight: FontWeight.w600, color: c.accent)),
-          if (!reply.deleted && reply.content.isNotEmpty)
-            MessageText(
-              content: reply.content,
-              style: context.label(11.5, color: c.muted, height: 1.35),
-              resolver: MentionResolver(
-                user: (id) => state.userById(id),
-                role: (id) => state.active?.serverId == null
-                    ? null
-                    : state.roleById(state.active!.serverId!, id),
-                channel: (id) => state.active?.serverId == null
-                    ? null
-                    : state.channelById(state.active!.serverId!, id),
-              ),
-            )
-          else
-            Text('Original message deleted',
-                style: context.label(11, color: c.muted, height: 1.35)),
-        ],
+    return InkWell(
+      borderRadius: BorderRadius.circular(4),
+      onTap: reply.deleted ? null : () => _jumpToMessage(reply.id),
+      child: Container(
+        margin: const EdgeInsets.only(top: 3, bottom: 2),
+        padding: const EdgeInsets.only(left: 8),
+        decoration: BoxDecoration(
+          border: Border(
+              left:
+                  BorderSide(color: c.accent.withValues(alpha: 0.6), width: 2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Reply to $authorLabel',
+                style: context.label(10.5,
+                    weight: FontWeight.w600, color: c.accent)),
+            if (!reply.deleted && reply.content.isNotEmpty)
+              MessageText(
+                content: reply.content,
+                style: context.label(11.5, color: c.muted, height: 1.35),
+                resolver: MentionResolver(
+                  user: (id) => state.userById(id),
+                  role: (id) => state.active?.serverId == null
+                      ? null
+                      : state.roleById(state.active!.serverId!, id),
+                  channel: (id) => state.active?.serverId == null
+                      ? null
+                      : state.channelById(state.active!.serverId!, id),
+                ),
+              )
+            else
+              Text('Original message deleted',
+                  style: context.label(11, color: c.muted, height: 1.35)),
+          ],
+        ),
       ),
     );
   }
@@ -2185,6 +2369,10 @@ class _ChatViewState extends State<ChatView> {
                 title: 'Replying to ${_reply!.authorName}',
                 body: _reply!.content,
                 color: c.accent,
+                trailing: widget.target.isChannel &&
+                        _reply!.author?.id != state.me?.id
+                    ? _replyMentionToggle(context)
+                    : null,
                 onCancel: () => setState(() => _reply = null),
               ),
             if (_attachments.isNotEmpty)
@@ -2237,6 +2425,16 @@ class _ChatViewState extends State<ChatView> {
               padding: const EdgeInsets.only(bottom: 5),
               child: Row(
                 children: [
+                  IconButton(
+                    onPressed: _openChatSettings,
+                    tooltip: 'Chat settings',
+                    visualDensity: VisualDensity.compact,
+                    constraints:
+                        const BoxConstraints(minWidth: 30, minHeight: 30),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.tune_rounded, size: 16),
+                  ),
+                  const SizedBox(width: 2),
                   _formatButton(
                     context,
                     tooltip: 'Bold',
@@ -2389,12 +2587,40 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
+  Widget _replyMentionToggle(BuildContext context) {
+    final c = context.c;
+    final on = _replyMention;
+    return Tooltip(
+      message: on
+          ? 'Replying mentions ${_reply?.authorName ?? 'this person'}'
+          : 'Replying without a mention',
+      child: TextButton.icon(
+        onPressed: _toggleReplyMention,
+        style: TextButton.styleFrom(
+          foregroundColor: on ? c.accent : c.muted,
+          minimumSize: const Size(0, 28),
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          visualDensity: VisualDensity.compact,
+        ),
+        icon: Icon(
+          on ? Icons.alternate_email_rounded : Icons.notifications_off_outlined,
+          size: 14,
+        ),
+        label: Text(
+          on ? '@ ON' : '@ OFF',
+          style: context.label(10.5, weight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
   Widget _composerBanner(
     BuildContext context, {
     required String title,
     required String body,
     required Color color,
     required VoidCallback onCancel,
+    Widget? trailing,
   }) {
     final c = context.c;
     return Container(
@@ -2427,6 +2653,7 @@ class _ChatViewState extends State<ChatView> {
               ],
             ),
           ),
+          if (trailing != null) trailing,
           IconButton(
             onPressed: onCancel,
             icon: const Icon(Icons.close_rounded, size: 15),

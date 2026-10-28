@@ -571,6 +571,7 @@ class FlackleClient {
     String content, {
     List<Attachment> attachments = const [],
     String? replyTo,
+    bool suppressReplyMention = false,
     String? nonce,
     List<String> suppressEmbeds = const [],
   }) async {
@@ -591,6 +592,8 @@ class FlackleClient {
       if (attachments.isNotEmpty)
         'attachments': attachments.map((entry) => entry.toJson()).toList(),
       if (replyTo != null) 'reply_to_message_id': replyTo,
+      if (replyTo != null && suppressReplyMention)
+        'suppress_reply_mention': true,
       if (suppressEmbeds.isNotEmpty) 'suppress_embeds': suppressEmbeds,
     };
     try {

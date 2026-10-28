@@ -44,8 +44,24 @@ class _ProfileSheetState extends State<ProfileSheet> {
   Future<void> _load() async {
     final state = FlackleScope.read(context);
     try {
-      final card = await state.client
+      var card = await state.client
           .fetchUserCard(widget.user.username, serverId: widget.serverId);
+      // Avatar/profile refresh responses can omit the badge list. Keep what the
+      // card already showed instead of making badges vanish.
+      final previous = _card;
+      if (card.badges.isEmpty &&
+          previous != null &&
+          previous.badges.isNotEmpty &&
+          previous.user.id == card.user.id) {
+        card = UserCard(
+          user: card.user,
+          member: card.member,
+          membership: card.membership,
+          badges: previous.badges,
+          blocks: card.blocks,
+          socials: card.socials,
+        );
+      }
       if (mounted) setState(() => _card = card);
     } catch (_) {
       // Fall back to the user we already have.
@@ -396,6 +412,50 @@ class _ProfileSheetState extends State<ProfileSheet> {
                     ],
                   ],
                 ),
+                if (card?.badges.isNotEmpty == true) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final badge in card!.badges)
+                        Tooltip(
+                          message: badge.description?.isNotEmpty == true
+                              ? badge.description!
+                              : badge.name,
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(7, 4, 9, 4),
+                            decoration: BoxDecoration(
+                              color: c.panel2,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: c.line),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AppImage(
+                                  badge.resolvedIconUrl,
+                                  width: 18,
+                                  height: 18,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => Icon(
+                                    Icons.workspace_premium_rounded,
+                                    size: 17,
+                                    color: c.accent,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(badge.name,
+                                    style: context.label(11,
+                                        weight: FontWeight.w600,
+                                        color: c.textDim)),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
                 if (roles.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Wrap(

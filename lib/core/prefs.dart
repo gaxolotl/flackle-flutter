@@ -96,6 +96,8 @@ class AppPrefs extends ChangeNotifier {
     'mentionAvatars': true,
     'quickReactions': true,
     'previewMessage': true,
+    'replyPings': 'on',
+    'lastReplyMention': true,
     'showMeYourName': true,
     'keepCurrentChannel': true,
     'viewIcons': true,
@@ -181,6 +183,28 @@ class AppPrefs extends ChangeNotifier {
 
   bool get previewMessage => _read<bool>('previewMessage');
   Future<void> setPreviewMessage(bool value) => _write('previewMessage', value);
+
+  /// How a new reply starts: `on`, `remember` or `off`.
+  String get replyPings {
+    final value = _read<String>('replyPings');
+    return value == 'remember' || value == 'off' ? value : 'on';
+  }
+
+  bool get lastReplyMention => _read<bool>('lastReplyMention');
+
+  bool get replyMentionDefault => switch (replyPings) {
+        'off' => false,
+        'remember' => lastReplyMention,
+        _ => true,
+      };
+
+  Future<void> setReplyPings(String value) {
+    final normalized = value == 'remember' || value == 'off' ? value : 'on';
+    return _write('replyPings', normalized);
+  }
+
+  Future<void> setLastReplyMention(bool value) =>
+      _write('lastReplyMention', value);
 
   bool get showMeYourName => _read<bool>('showMeYourName');
   Future<void> setShowMeYourName(bool value) => _write('showMeYourName', value);

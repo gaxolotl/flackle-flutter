@@ -56,6 +56,9 @@ class AppState extends ChangeNotifier {
 
   Target? active;
   List<Message> messages = const [];
+
+  /// One-shot requests to reveal a message after its channel finishes loading.
+  final Map<String, String> messageFocusRequests = {};
   bool hasMoreBefore = false;
   bool loadingMessages = false;
   bool loadingOlder = false;
@@ -494,17 +497,32 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> jumpToMessage(String messageId) async {
+  void requestMessageFocus(Target target, String messageId) {
+    messageFocusRequests[target.key] = messageId;
+  }
+
+  String? takeMessageFocusRequest(Target target) =>
+      messageFocusRequests.remove(target.key);
+
+  /// Loads the page surrounding a message that may no longer be cached.
+  /// Returns false when the message no longer exists.
+  Future<bool> jumpToMessage(String messageId) async {
     final target = active;
-    if (target == null) return;
+    if (target == null) return false;
+    if (messages.any((message) => message.id == messageId)) return true;
     try {
       final page = await client.fetchMessagesAround(target, messageId);
-      if (active?.key != target.key) return;
-      messages =
+      if (active?.key != target.key) return false;
+      final visible =
           page.messages.where((message) => message.isRenderable).toList();
+      if (!visible.any((message) => message.id == messageId)) return false;
+      messages = visible;
       hasMoreBefore = page.hasMoreBefore || page.hasMore;
       notifyListeners();
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   void clearServer(String serverId) {
@@ -527,6 +545,7 @@ class AppState extends ChangeNotifier {
     String content, {
     List<Attachment> attachments = const [],
     String? replyTo,
+    bool suppressReplyMention = false,
     List<String> suppressEmbeds = const [],
   }) async {
     final target = active;
@@ -557,6 +576,7 @@ class AppState extends ChangeNotifier {
         content,
         attachments: attachments,
         replyTo: replyTo,
+        suppressReplyMention: suppressReplyMention,
         nonce: nonce,
         suppressEmbeds: suppressEmbeds,
       );
@@ -650,11 +670,15 @@ class AppState extends ChangeNotifier {
     final trimmed = content.trim();
     if (trimmed.isEmpty || trimmed == message.content) return;
     final previous = messages;
-    messages = messages
-        .map((entry) => entry.id == message.id
-            ? entry.copyWith(content: trimmed, editedAt: DateTime.now())
-            : entry)
-        .toList();
+    messages = _updateReplyPreviews(
+      messages
+          .map((entry) => entry.id == message.id
+              ? entry.copyWith(content: trimmed, editedAt: DateTime.now())
+              : entry)
+          .toList(),
+      message.id,
+      content: trimmed,
+    );
     final updated =
         messages.firstWhereOrNull((entry) => entry.id == message.id);
     notifyListeners();
@@ -666,6 +690,25 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  /// Reply previews carry a snapshot of the original message. When that
+  /// message changes, refresh every preview too, even when the original itself
+  /// is outside the currently loaded page.
+  List<Message> _updateReplyPreviews(
+    List<Message> list,
+    String messageId, {
+    String? content,
+    bool? deleted,
+  }) {
+    if (content == null && deleted == null) return list;
+    return list.map((entry) {
+      final reply = entry.replyTo;
+      if (reply == null || reply.id != messageId) return entry;
+      return entry.copyWith(
+        replyTo: reply.copyWith(content: content, deleted: deleted),
+      );
+    }).toList();
   }
 
   Future<void> removeLinkPreview(Message message, String url) async {
@@ -1321,22 +1364,35 @@ class AppState extends ChangeNotifier {
   }
 
   void _handleMessageUpdate(GatewayEvent event) {
-    final id = asString(event.payload['message_id'] ?? event.payload['id']);
-    final content = asString(event.payload['content']);
-    if (id.isEmpty) return;
-    final editedAt = asDate(event.payload['edited_at']) ?? DateTime.now();
-    messages = messages
+    final raw = event.payload['message'] is Map
+        ? asMap(event.payload['message'])
+        : event.payload;
+    final id = asString(
+        event.payload['message_id'] ?? event.payload['id'] ?? raw['id']);
+    final content = asString(raw['content']);
+    if (id.isEmpty || content.isEmpty) return;
+    final editedAt = asDate(raw['edited_at']) ??
+        asDate(event.payload['edited_at']) ??
+        DateTime.now();
+    var updated = messages
         .map((entry) => entry.id == id
             ? entry.copyWith(content: content, editedAt: editedAt)
             : entry)
         .toList();
+    updated =
+        _updateReplyPreviews(updated, id, content: content, deleted: false);
+    messages = updated;
     notifyListeners();
   }
 
   void _handleMessageDelete(GatewayEvent event) {
     final id = asString(event.payload['message_id'] ?? event.payload['id']);
     if (id.isEmpty) return;
-    messages = messages.where((entry) => entry.id != id).toList();
+    messages = _updateReplyPreviews(
+      messages.where((entry) => entry.id != id).toList(),
+      id,
+      deleted: true,
+    );
     notifyListeners();
   }
 
@@ -1344,7 +1400,11 @@ class AppState extends ChangeNotifier {
     if (event.serverId != active?.serverId) return;
     final ids =
         asList(event.payload['message_ids']).map((value) => '$value').toSet();
-    messages = messages.where((entry) => !ids.contains(entry.id)).toList();
+    var updated = messages.where((entry) => !ids.contains(entry.id)).toList();
+    for (final id in ids) {
+      updated = _updateReplyPreviews(updated, id, deleted: true);
+    }
+    messages = updated;
     notifyListeners();
   }
 

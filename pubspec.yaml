@@ -1,7 +1,7 @@
 name: flackle_mobile
 description: An unofficial Flutter client for Flackle.
 publish_to: none
-version: 1.0.0+1
+version: 1.0.1+2
 repository: https://github.com/gaxolotl/flackle-flutter
 issue_tracker: https://github.com/gaxolotl/flackle-flutter/issues
 

@@ -614,6 +614,50 @@ class _ChatTab extends StatelessWidget {
           value: value,
           onChanged: onChanged,
         );
+    Widget replyOption(String value, String label, String detail) {
+      final selected = prefs.replyPings == value;
+      return InkWell(
+        borderRadius: BorderRadius.circular(9),
+        onTap: () => prefs.setReplyPings(value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: selected ? c.accent : c.panel3,
+                  border: Border.all(
+                    color: selected ? c.accent : c.lineStrong,
+                  ),
+                ),
+                child: selected
+                    ? const Icon(Icons.check_rounded,
+                        size: 13, color: Colors.white)
+                    : null,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: context.label(12.5,
+                            weight:
+                                selected ? FontWeight.w600 : FontWeight.w500)),
+                    if (detail.isNotEmpty)
+                      Text(detail, style: context.label(10.5, color: c.muted)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -634,6 +678,18 @@ class _ChatTab extends StatelessWidget {
             prefs.setShowTyping),
         toggle('Share my typing state', 'Send typing events when you write.',
             prefs.shareTyping, prefs.setShareTyping),
+        const SectionLabel('Replies'),
+        Text(
+          'Choose whether a new reply starts with an @ mention. You can still flip it on or off in the reply bar.',
+          style: context.label(11.5, color: c.muted, height: 1.5),
+        ),
+        const SizedBox(height: 6),
+        replyOption('on', 'On every time',
+            'A reply mentions the person you are answering.'),
+        replyOption('remember', 'Remember last choice',
+            'Use the last @ toggle you picked for the next reply.'),
+        replyOption('off', 'Off every time',
+            'Replies still link to the message, without a mention.'),
         const SectionLabel('Messages'),
         toggle('Link previews', 'Render rich previews for links in messages.',
             prefs.linkPreviews, prefs.setLinkPreviews),
@@ -1293,7 +1349,7 @@ class _AboutTab extends StatelessWidget {
               children: [
                 Text('Flackle Mobile',
                     style: context.display(20, weight: FontWeight.w600)),
-                Text('Version 1.0.0 · Flutter',
+                Text('Version 1.0.1 · Flutter',
                     style: context.label(11.5, color: c.muted)),
               ],
             ),
@@ -1308,6 +1364,11 @@ class _AboutTab extends StatelessWidget {
         _link(context, 'Flackle', 'https://flackle.com'),
         _link(context, 'Flackle Desktop repository',
             'https://github.com/gaxolotl/flackle-tauri'),
+        const SectionLabel('Privacy'),
+        _link(context, 'Privacy Policy', 'https://flackle.com/privacy'),
+        _link(context, 'Terms of Service', 'https://flackle.com/terms'),
+        _mailLink(context, 'privacy@flackle.com', 'Privacy questions'),
+        _mailLink(context, 'support@flackle.com', 'Support'),
         const SectionLabel('Disclaimer'),
         Text(
           'This is an unofficial client. It is not affiliated with Flackle or Folkward LLC. Never enter your password anywhere except flackle.com.',
@@ -1352,6 +1413,50 @@ class _AboutTab extends StatelessWidget {
                 Expanded(
                   child: Text(label,
                       style: context.label(12.5, color: context.c.accent)),
+                ),
+                Icon(Icons.open_in_new_rounded,
+                    size: 13, color: context.c.muted),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  Widget _mailLink(BuildContext context, String address, String label) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(7),
+          onTap: () async {
+            final uri = Uri(scheme: 'mailto', path: address);
+            var opened = false;
+            try {
+              opened =
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+            } catch (_) {
+              opened = false;
+            }
+            if (!opened && context.mounted) {
+              showAppToast(context, 'No mail app is available for $address.');
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 7),
+            child: Row(
+              children: [
+                Icon(Icons.mail_outline_rounded,
+                    size: 14, color: context.c.accent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(address,
+                          style: context.label(12.5, color: context.c.accent)),
+                      Text(label,
+                          style: context.label(10.5, color: context.c.muted)),
+                    ],
+                  ),
                 ),
                 Icon(Icons.open_in_new_rounded,
                     size: 13, color: context.c.muted),
