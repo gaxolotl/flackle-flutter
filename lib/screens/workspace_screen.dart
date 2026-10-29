@@ -1727,7 +1727,7 @@ class _MobileMessages extends StatelessWidget {
     final conversations = state.conversations;
     return Column(
       children: [
-        _MobileHeader(
+        WorkspaceHeader(
           title: 'Messages',
           subtitle:
               '${state.totalUnread} unread · ${conversations.length} conversations',
@@ -1874,7 +1874,7 @@ class _MobileServers extends StatelessWidget {
             .length;
     return Column(
       children: [
-        _MobileHeader(
+        WorkspaceHeader(
           title: server?.name ?? 'Servers',
           subtitle: server == null
               ? '${state.servers.length} joined'
@@ -1887,29 +1887,20 @@ class _MobileServers extends StatelessWidget {
                 IconButton(
                   onPressed: onSearch,
                   tooltip: 'Search channels',
-                  visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.search_rounded, size: 19),
                 ),
               if (server != null)
                 IconButton(
                   onPressed: () => onMembers(server.id),
                   tooltip: 'Members',
-                  visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.people_alt_outlined, size: 19),
                 ),
               if (server != null)
                 IconButton(
                   onPressed: onServerSettings,
                   tooltip: 'Server settings',
-                  visualDensity: VisualDensity.compact,
                   icon: const Icon(Icons.settings_outlined, size: 19),
                 ),
-              IconButton(
-                onPressed: onAdd,
-                tooltip: 'Add a server',
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.add_rounded, size: 21),
-              ),
             ],
           ),
         ),
@@ -2003,7 +1994,7 @@ class _MobileYou extends StatelessWidget {
     final me = state.me;
     return Column(
       children: [
-        _MobileHeader(title: 'You', subtitle: me?.handle ?? ''),
+        WorkspaceHeader(title: 'You', subtitle: me?.handle ?? ''),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
@@ -2141,53 +2132,4 @@ class _RailUnit {
   final ServerFolder? folder;
   final List<Server> servers;
   final int position;
-}
-
-class _MobileHeader extends StatelessWidget {
-  const _MobileHeader({
-    required this.title,
-    this.subtitle,
-    this.onSettings,
-    this.trailing,
-  });
-
-  final String title;
-  final String? subtitle;
-  final VoidCallback? onSettings;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: c.line)),
-      ),
-      child: Row(
-        children: [
-          const FlackleMark(size: 24),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: context.display(17, weight: FontWeight.w600)),
-                if (subtitle != null)
-                  Text(subtitle!, style: context.label(10.5, color: c.muted)),
-              ],
-            ),
-          ),
-          if (trailing != null) trailing!,
-          if (onSettings != null)
-            IconButton(
-              onPressed: onSettings,
-              tooltip: 'Settings',
-              icon: const Icon(Icons.settings_outlined, size: 19),
-            ),
-        ],
-      ),
-    );
-  }
 }

@@ -135,41 +135,22 @@ class _FriendsViewState extends State<FriendsView> {
         state.friendRequests.outgoing.isNotEmpty;
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(18, 16, 10, 16),
-          decoration: BoxDecoration(
-            color: c.panel,
-            border: Border(bottom: BorderSide(color: c.line)),
-          ),
-          child: Row(
+        WorkspaceHeader(
+          title: 'Friends',
+          subtitle: '${state.friends.length} '
+              '${state.friends.length == 1 ? 'friend' : 'friends'} · '
+              '${state.friends.where((user) => _isOnline(state, user)).length} online',
+          compact: MediaQuery.sizeOf(context).width >= 760,
+          leading: MediaQuery.sizeOf(context).width >= 760
+              ? AppIcon('users', size: 18, color: c.textDim)
+              : null,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.all(11),
-                decoration: BoxDecoration(
-                  color: c.accentDim,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: AppIcon('users', size: 21, color: c.accent),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Friends',
-                        style: context.display(20, weight: FontWeight.w700)),
-                    const SizedBox(height: 3),
-                    Text('A little closer to your people.',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.label(12, color: c.textDim)),
-                  ],
-                ),
-              ),
               IconButton(
                 onPressed: _newGroup,
                 tooltip: 'New group',
-                icon: const Icon(Icons.group_add_outlined, size: 18),
+                icon: const Icon(Icons.group_add_outlined, size: 19),
               ),
               IconButton(
                 onPressed: _loading ? null : _load,
@@ -180,7 +161,7 @@ class _FriendsViewState extends State<FriendsView> {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.refresh_rounded, size: 18),
+                    : const Icon(Icons.refresh_rounded, size: 19),
               ),
             ],
           ),

@@ -26,6 +26,67 @@ class FlackleScope extends InheritedNotifier<AppState> {
   }
 }
 
+/// A consistent header for workspace tabs, with room for contextual actions.
+class WorkspaceHeader extends StatelessWidget {
+  const WorkspaceHeader({
+    required this.title,
+    this.subtitle,
+    this.leading,
+    this.compact = false,
+    this.onSettings,
+    this.trailing,
+    super.key,
+  });
+
+  final String title;
+  final String? subtitle;
+  final Widget? leading;
+  final bool compact;
+  final VoidCallback? onSettings;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        constraints: BoxConstraints(minHeight: compact ? 54 : 64),
+        padding: EdgeInsets.fromLTRB(16, compact ? 2 : 7, 8, compact ? 3 : 8),
+        decoration: BoxDecoration(
+          color: context.c.bg,
+          border: Border(bottom: BorderSide(color: context.c.line)),
+        ),
+        child: Row(
+          children: [
+            leading ?? const FlackleMark(size: 24),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.display(compact ? 16 : 17,
+                          weight: FontWeight.w600)),
+                  if (subtitle != null && !compact)
+                    Text(subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.label(10.5, color: context.c.muted)),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing!,
+            if (onSettings != null)
+              IconButton(
+                onPressed: onSettings,
+                tooltip: 'Settings',
+                icon: const Icon(Icons.settings_outlined, size: 19),
+              ),
+          ],
+        ),
+      );
+}
+
 class AppAvatar extends StatelessWidget {
   const AppAvatar({
     required this.url,

@@ -9,7 +9,9 @@ import 'package:flackle_mobile/core/theme.dart';
 import 'package:flackle_mobile/screens/chat_view.dart';
 import 'package:flackle_mobile/screens/friends_view.dart';
 import 'package:flackle_mobile/screens/settings_screen.dart';
+import 'package:flackle_mobile/screens/workspace_screen.dart';
 import 'package:flackle_mobile/ui/common.dart';
+import 'package:flackle_mobile/ui/icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,6 +36,15 @@ class _State extends AppState {
   Future<void> loadFriends() async {
     if (failRefresh) throw const FlackleException('Connection unavailable');
   }
+
+  @override
+  Future<void> loadBundle(String serverId, {bool force = false}) async {}
+
+  @override
+  Future<void> loadMembers(String serverId, {bool force = false}) async {}
+
+  @override
+  Future<void> loadRoles(String serverId, {bool force = false}) async {}
 }
 
 const _alex = User(id: 'alex', username: 'alex', displayName: 'Alex Morgan');
@@ -201,6 +212,78 @@ void main() {
     await pumpScreen(tester, child: const SettingsScreen(initialTab: 5));
     expect(find.text('Version $version · Flutter'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  for (final hasServers in [false, true]) {
+    testWidgets('Servers has one add action (joined servers: $hasServers)',
+        (tester) async {
+      if (hasServers) {
+        state.servers = const [Server(id: 'server', name: 'Community')];
+        state.bundles['server'] = const ChannelBundle();
+      }
+      await pumpScreen(tester, child: WorkspaceScreen(state: state));
+      await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.add_rounded), findsOneWidget);
+      expect(find.byTooltip('Add a server'),
+          hasServers ? findsOneWidget : findsNothing);
+      expect(
+          find.descendant(
+              of: find.byType(WorkspaceHeader),
+              matching: find.byIcon(Icons.add_rounded)),
+          findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final width in [320.0, 390.0]) {
+    testWidgets('workspace tab headers align at width $width', (tester) async {
+      state.servers = const [
+        Server(
+          id: 'server',
+          name: 'A community with a very long server name',
+        )
+      ];
+      state.bundles['server'] = const ChannelBundle();
+      await pumpScreen(tester,
+          child: WorkspaceScreen(state: state),
+          size: Size(width, 740),
+          textScale: 1.4);
+      final initialHeader = tester.getRect(find.byType(WorkspaceHeader));
+      // Enlarged system text can grow the header, equally across all tabs.
+      expect(initialHeader.height, greaterThanOrEqualTo(64));
+      for (final tab in ['Servers', 'Friends', 'You', 'Messages']) {
+        await tester.tap(find.widgetWithText(NavigationDestination, tab));
+        await tester.pumpAndSettle();
+        expect(find.byType(WorkspaceHeader), findsOneWidget);
+        expect(tester.getRect(find.byType(WorkspaceHeader)), initialHeader);
+        for (final button in find
+            .descendant(
+                of: find.byType(WorkspaceHeader),
+                matching: find.byType(IconButton))
+            .evaluate()) {
+          expect(
+              tester.getSize(find.byWidget(button.widget)), const Size(48, 48));
+        }
+        expect(
+            find.descendant(
+                of: find.byType(WorkspaceHeader),
+                matching: find.byType(FlackleMark)),
+            findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+    });
+  }
+
+  testWidgets('desktop Friends header matches the 54px workspace toolbars',
+      (tester) async {
+    await pumpScreen(tester, size: const Size(1200, 800));
+    expect(tester.getSize(find.byType(WorkspaceHeader)).height, 54);
+    expect(
+        find.descendant(
+            of: find.byType(WorkspaceHeader),
+            matching: find.byType(FlackleMark)),
+        findsNothing);
   });
 
   for (final brightness in Brightness.values) {
