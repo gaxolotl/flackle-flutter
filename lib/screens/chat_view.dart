@@ -544,11 +544,12 @@ class _ChatViewState extends State<ChatView> {
     required String marker,
     required bool enabled,
   }) {
+    final targetSize = MediaQuery.sizeOf(context).width < 760 ? 44.0 : 30.0;
     return IconButton(
       onPressed: enabled ? () => _formatSelection(marker) : null,
       tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+      visualDensity: VisualDensity.standard,
+      constraints: BoxConstraints(minWidth: targetSize, minHeight: targetSize),
       padding: EdgeInsets.zero,
       icon: Icon(icon, size: 17),
     );
@@ -568,7 +569,9 @@ class _ChatViewState extends State<ChatView> {
       child: InkWell(
         borderRadius: BorderRadius.circular(7),
         onTap: () => state.prefs.setComposeAutoEmbeds(!enabled),
-        child: Padding(
+        child: Container(
+          constraints: BoxConstraints(
+              minHeight: MediaQuery.sizeOf(context).width < 760 ? 44 : 30),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -2423,18 +2426,23 @@ class _ChatViewState extends State<ChatView> {
             if (_suggestions.isNotEmpty) _suggestionPopup(context),
             Padding(
               padding: const EdgeInsets.only(bottom: 5),
-              child: Row(
+              child: Wrap(
+                spacing: 2,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   IconButton(
                     onPressed: _openChatSettings,
                     tooltip: 'Chat settings',
-                    visualDensity: VisualDensity.compact,
-                    constraints:
-                        const BoxConstraints(minWidth: 30, minHeight: 30),
+                    visualDensity: VisualDensity.standard,
+                    constraints: BoxConstraints(
+                        minWidth:
+                            MediaQuery.sizeOf(context).width < 760 ? 44 : 30,
+                        minHeight:
+                            MediaQuery.sizeOf(context).width < 760 ? 44 : 30),
                     padding: EdgeInsets.zero,
                     icon: const Icon(Icons.tune_rounded, size: 16),
                   ),
-                  const SizedBox(width: 2),
                   _formatButton(
                     context,
                     tooltip: 'Bold',
@@ -2463,7 +2471,6 @@ class _ChatViewState extends State<ChatView> {
                     marker: '~~',
                     enabled: canSend,
                   ),
-                  const Spacer(),
                   _embedsToggle(context, state),
                 ],
               ),
@@ -2496,6 +2503,7 @@ class _ChatViewState extends State<ChatView> {
                     onSubmitted: (_) => _send(),
                     style: context.label(13.5, height: 1.45),
                     decoration: InputDecoration(
+                      hintMaxLines: 1,
                       hintText: canSend
                           ? (target.isChannel
                               ? 'Message #${target.title ?? ''}'
@@ -2529,8 +2537,8 @@ class _ChatViewState extends State<ChatView> {
                 Padding(
                   padding: const EdgeInsets.only(left: 2, bottom: 2),
                   child: SizedBox(
-                    width: 40,
-                    height: 40,
+                    width: 48,
+                    height: 48,
                     child: Tooltip(
                       message:
                           _editing == null ? 'Send message' : 'Save changes',

@@ -20,6 +20,7 @@ import 'chat_view.dart';
 import 'friends_view.dart';
 import 'group_dm_dialog.dart';
 import 'member_panel.dart';
+import 'notifications_sheet.dart';
 import 'search_dialog.dart';
 import 'server_channels_page.dart';
 import 'server_settings_screen.dart';
@@ -41,12 +42,16 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   String? _serverId;
   bool _showMembers = false;
   int _mobileIndex = 0;
+  int _lastActiveRevision = 0;
 
   AppState get state => FlackleScope.read(context);
 
   @override
   void initState() {
     super.initState();
+    _lastActiveRevision = widget.state.activeRevision;
+    _mobileIndex = widget.state.active?.isChannel == true ? 1 : 0;
+    widget.state.addListener(_syncActiveTarget);
     _serverId = widget.state.active?.serverId ??
         (widget.state.servers.isEmpty ? null : widget.state.servers.first.id);
     _view = widget.state.active?.serverId != null
@@ -64,6 +69,24 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         unawaited(widget.state.selectServer(_serverId!));
       }
     });
+  }
+
+  void _syncActiveTarget() {
+    final active = widget.state.active;
+    if (!mounted || widget.state.activeRevision == _lastActiveRevision) return;
+    _lastActiveRevision = widget.state.activeRevision;
+    if (active == null) return;
+    setState(() {
+      _view = active.isChannel ? WorkspaceView.server : WorkspaceView.home;
+      if (active.isChannel) _serverId = active.serverId;
+      _mobileIndex = active.isChannel ? 1 : 0;
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.state.removeListener(_syncActiveTarget);
+    super.dispose();
   }
 
   void _selectHome() {
@@ -99,7 +122,15 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   }
 
   Future<void> _openSearch() async {
-    await showQuickSwitcher(context, serverId: _serverId);
+    await showQuickSwitcher(context, serverId: _serverId, onNavigate: () {
+      if (!mounted) return;
+      final active = widget.state.active;
+      if (active == null) return;
+      setState(() {
+        _view = active.isChannel ? WorkspaceView.server : WorkspaceView.home;
+        if (active.isChannel) _serverId = active.serverId;
+      });
+    });
   }
 
   Future<void> _showMobileMembers(BuildContext context, String serverId) async {
@@ -119,85 +150,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   }
 
   Future<void> _showNotifications() async {
-    final state = FlackleScope.read(context);
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 520),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 8, 6),
-                child: Row(
-                  children: [
-                    Text('Notifications',
-                        style: context.display(16, weight: FontWeight.w600)),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () {
-                        state.markNotificationsRead();
-                        Navigator.of(context).pop();
-                      },
-                      child: const Text('Mark all read'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: state.notifications.isEmpty
-                    ? Center(
-                        child: Text(
-                            'Nothing yet. Mentions and replies land here.',
-                            style: TextStyle(
-                                color: context.c.muted, fontSize: 12)),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
-                        itemCount: state.notifications.length,
-                        separatorBuilder: (_, __) =>
-                            Divider(color: context.c.line),
-                        itemBuilder: (context, index) {
-                          final notification = state.notifications[index];
-                          return ListTile(
-                            dense: true,
-                            leading: Icon(
-                              notification.read
-                                  ? Icons.notifications_none_rounded
-                                  : Icons.notifications_active_rounded,
-                              size: 18,
-                              color: notification.read
-                                  ? context.c.muted
-                                  : context.c.accent,
-                            ),
-                            title: Text(notification.title,
-                                style: const TextStyle(fontSize: 12.5)),
-                            subtitle: Text(notification.body,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11)),
-                            trailing: Text(relativeTime(notification.createdAt),
-                                style: TextStyle(
-                                    fontSize: 9.5, color: context.c.muted)),
-                            onTap: () {
-                              notification.read = true;
-                              final target = notification.target;
-                              if (target == null) return;
-                              Navigator.of(context).pop();
-                              _openTarget(target);
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      isScrollControlled: true,
+      builder: (_) => NotificationsSheet(onOpen: _openTarget),
     );
-    state.markNotificationsRead();
   }
 
   void _openTarget(Target target) {
@@ -230,33 +188,44 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   @override
   Widget build(BuildContext context) {
     final state = FlackleScope.of(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 760) {
-          return _mobile(context, state);
-        }
-        final wideMembers = constraints.maxWidth >= 1180;
-        final sidebarWidth = constraints.maxWidth >= 1000 ? 264.0 : 236.0;
-        return Scaffold(
-          body: Row(
-            children: [
-              _rail(context, state),
-              Container(width: 1, color: context.c.line),
-              SizedBox(
-                width: sidebarWidth,
-                child: _sidebar(context, state),
-              ),
-              Container(width: 1, color: context.c.line),
-              Expanded(child: _content(context, state)),
-              if (_showMembers && wideMembers && _view == WorkspaceView.server)
-                MemberPanel(
-                  serverId: state.active?.serverId ?? _serverId ?? '',
-                  onClose: () => setState(() => _showMembers = false),
-                ),
-            ],
-          ),
-        );
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _openSearch,
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _openSearch,
       },
+      child: Focus(
+          autofocus: true,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 760) {
+                return _mobile(context, state);
+              }
+              final wideMembers = constraints.maxWidth >= 1180;
+              final sidebarWidth = constraints.maxWidth >= 1000 ? 264.0 : 236.0;
+              return Scaffold(
+                body: Row(
+                  children: [
+                    _rail(context, state),
+                    Container(width: 1, color: context.c.line),
+                    SizedBox(
+                      width: sidebarWidth,
+                      child: _sidebar(context, state),
+                    ),
+                    Container(width: 1, color: context.c.line),
+                    Expanded(child: _content(context, state)),
+                    if (_showMembers &&
+                        wideMembers &&
+                        _view == WorkspaceView.server)
+                      MemberPanel(
+                        serverId: state.active?.serverId ?? _serverId ?? '',
+                        onClose: () => setState(() => _showMembers = false),
+                      ),
+                  ],
+                ),
+              );
+            },
+          )),
     );
   }
 
@@ -1363,7 +1332,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     }
     return ChatView(
       target: active,
-      onToggleMembers: () => setState(() => _showMembers = !_showMembers),
+      onToggleMembers: () {
+        if (MediaQuery.sizeOf(context).width < 1180) {
+          unawaited(_showMobileMembers(context, active.serverId!));
+        } else {
+          setState(() => _showMembers = !_showMembers);
+        }
+      },
     );
   }
 
@@ -1491,8 +1466,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   Future<void> _newGroup() async {
     final state = FlackleScope.read(context);
     if (state.friends.isEmpty) {
-      unawaited(state.loadFriends());
-      setState(() => _view = WorkspaceView.friends);
+      setState(() {
+        _view = WorkspaceView.friends;
+        if (isNarrow(context)) _mobileIndex = 2;
+      });
       return;
     }
     final conversation = await showCreateGroupDm(context);
@@ -1504,8 +1481,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   Future<void> _newMessage() async {
     final state = FlackleScope.read(context);
     if (state.friends.isEmpty) {
-      unawaited(state.loadFriends());
-      setState(() => _view = WorkspaceView.friends);
+      setState(() {
+        _view = WorkspaceView.friends;
+        if (isNarrow(context)) _mobileIndex = 2;
+      });
       return;
     }
     final user = await showDialog<User>(
@@ -1520,10 +1499,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
                 child: Row(
                   children: [
-                    Text('New message',
-                        style: context.display(16, weight: FontWeight.w600)),
-                    const Spacer(),
+                    Expanded(
+                        child: Text('New message',
+                            style:
+                                context.display(16, weight: FontWeight.w600))),
                     IconButton(
+                      tooltip: 'Close',
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close_rounded, size: 18),
                     ),
@@ -1557,7 +1538,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     if (user == null) return;
     try {
       final conversation = await state.client.createDM(user.id);
-      await state.openConversation(conversation);
+      if (!mounted) return;
+      await openConversation(context, state, conversation);
       if (mounted) setState(() => _view = WorkspaceView.home);
     } catch (failure) {
       if (mounted) showAppToast(context, failure.toString());
@@ -1632,6 +1614,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       _MobileMessages(
           state: state,
           onOpen: _openTarget,
+          onCreateMessage: _newMessage,
           onSettings: _openSettings,
           onCreateGroup: _newGroup),
       _MobileServers(
@@ -1714,12 +1697,14 @@ class _MobileMessages extends StatelessWidget {
     required this.onOpen,
     required this.onSettings,
     required this.onCreateGroup,
+    required this.onCreateMessage,
   });
 
   final AppState state;
   final void Function(Target target) onOpen;
   final VoidCallback onSettings;
   final VoidCallback onCreateGroup;
+  final VoidCallback onCreateMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -1732,11 +1717,17 @@ class _MobileMessages extends StatelessWidget {
           subtitle:
               '${state.totalUnread} unread · ${conversations.length} conversations',
           onSettings: onSettings,
-          trailing: IconButton(
-            onPressed: onCreateGroup,
-            tooltip: 'New group',
-            icon: const Icon(Icons.group_add_outlined, size: 19),
-          ),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+                onPressed: onCreateMessage,
+                tooltip: 'New message',
+                icon: const Icon(Icons.edit_outlined, size: 19)),
+            IconButton(
+              onPressed: onCreateGroup,
+              tooltip: 'New group',
+              icon: const Icon(Icons.group_add_outlined, size: 19),
+            ),
+          ]),
         ),
         Expanded(
           child: conversations.isEmpty

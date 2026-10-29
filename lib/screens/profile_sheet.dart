@@ -17,6 +17,7 @@ class ProfileSheet extends StatefulWidget {
     this.member,
     this.serverId,
     this.controller,
+    this.onOpenConversation,
     super.key,
   });
 
@@ -24,6 +25,7 @@ class ProfileSheet extends StatefulWidget {
   final Member? member;
   final String? serverId;
   final ScrollController? controller;
+  final Future<void> Function(Conversation)? onOpenConversation;
 
   @override
   State<ProfileSheet> createState() => _ProfileSheetState();
@@ -77,7 +79,11 @@ class _ProfileSheetState extends State<ProfileSheet> {
       final conversation = await state.client.createDM(widget.user.id);
       if (!mounted) return;
       Navigator.of(context).pop();
-      await state.openConversation(conversation);
+      if (widget.onOpenConversation != null) {
+        await widget.onOpenConversation!(conversation);
+      } else {
+        await state.openConversation(conversation);
+      }
     } catch (failure) {
       if (mounted) showAppToast(context, failure.toString());
     } finally {
@@ -357,12 +363,19 @@ class _ProfileSheetState extends State<ProfileSheet> {
                     children: [
                       if (widget.serverId != null)
                         IconButton(
+                          tooltip: 'Profile options',
                           onPressed: _safetyMenu,
                           style: IconButton.styleFrom(
                             backgroundColor: c.bg.withValues(alpha: 0.5),
                           ),
                           icon: const Icon(Icons.more_horiz_rounded, size: 18),
                         ),
+                      IconButton(
+                          tooltip: 'Close profile',
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: IconButton.styleFrom(
+                              backgroundColor: c.bg.withValues(alpha: 0.5)),
+                          icon: const Icon(Icons.close_rounded, size: 19)),
                     ],
                   ),
                 ),
@@ -465,18 +478,17 @@ class _ProfileSheetState extends State<ProfileSheet> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                Row(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (!isMe) ...[
-                      Expanded(
-                        child: AppButton(
-                          label: 'Message',
-                          icon: 'dm',
-                          onPressed: _busy ? null : _message,
-                          busy: _busy,
-                        ),
+                      AppButton(
+                        label: 'Message',
+                        icon: 'dm',
+                        onPressed: _busy ? null : _message,
+                        busy: _busy,
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(height: 8),
                       OutlinedButton(
                         onPressed: _busy || isFriend || outgoing || _requested
                             ? null
@@ -492,18 +504,16 @@ class _ProfileSheetState extends State<ProfileSheet> {
                                     : 'Add friend'),
                       ),
                     ] else
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final navigator = Navigator.of(context);
-                            await navigator.push<void>(MaterialPageRoute(
-                              builder: (_) => const ProfileEditorScreen(),
-                            ));
-                            if (mounted) navigator.pop();
-                          },
-                          icon: const Icon(Icons.edit_outlined, size: 15),
-                          label: const Text('Edit profile'),
-                        ),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final navigator = Navigator.of(context);
+                          await navigator.push<void>(MaterialPageRoute(
+                            builder: (_) => const ProfileEditorScreen(),
+                          ));
+                          if (mounted) navigator.pop();
+                        },
+                        icon: const Icon(Icons.edit_outlined, size: 15),
+                        label: const Text('Edit profile'),
                       ),
                   ],
                 ),

@@ -44,7 +44,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       if (_mfaToken == null) {
-        final result = await _state.client.login(_email.text, _password.text);
+        final result =
+            await _state.client.login(_email.text.trim(), _password.text);
+        if (!mounted) return;
         if (result.requiresMfa) {
           setState(() => _mfaToken = result.mfaToken);
           return;
@@ -59,7 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
         await _state.start();
       }
     } catch (failure) {
-      setState(() => _error = failure.toString());
+      if (mounted) setState(() => _error = failure.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -248,6 +250,7 @@ class _LoginScreenState extends State<LoginScreen> {
             if (!isMfa) ...[
               TextFormField(
                 controller: _email,
+                enabled: !_busy,
                 keyboardType: TextInputType.emailAddress,
                 autofillHints: const [AutofillHints.username],
                 autocorrect: false,
@@ -263,6 +266,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 13),
               TextFormField(
                 controller: _password,
+                enabled: !_busy,
                 obscureText: !_showPassword,
                 autofillHints: const [AutofillHints.password],
                 textInputAction: TextInputAction.done,
@@ -271,8 +275,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   labelText: 'Password',
                   suffixIcon: IconButton(
                     tooltip: _showPassword ? 'Hide password' : 'Show password',
-                    onPressed: () =>
-                        setState(() => _showPassword = !_showPassword),
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() => _showPassword = !_showPassword),
                     icon: Icon(
                       _showPassword
                           ? Icons.visibility_off_outlined
@@ -288,6 +293,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ] else ...[
               TextFormField(
                 controller: _code,
+                enabled: !_busy,
                 keyboardType:
                     _backupCode ? TextInputType.text : TextInputType.number,
                 autofillHints: const [AutofillHints.oneTimeCode],
@@ -305,10 +311,12 @@ class _LoginScreenState extends State<LoginScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(
-                  onPressed: () => setState(() {
-                    _backupCode = !_backupCode;
-                    _code.clear();
-                  }),
+                  onPressed: _busy
+                      ? null
+                      : () => setState(() {
+                            _backupCode = !_backupCode;
+                            _code.clear();
+                          }),
                   child: Text(_backupCode
                       ? 'Use an authenticator code'
                       : 'Use a backup code'),
@@ -348,7 +356,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             if (isMfa)
               TextButton(
-                onPressed: _resetMfa,
+                onPressed: _busy ? null : _resetMfa,
                 child: const Text('Use a different account'),
               ),
             const SizedBox(height: 14),

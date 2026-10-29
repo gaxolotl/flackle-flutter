@@ -59,12 +59,15 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(server?.name ?? 'Server settings',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: context.display(16, weight: FontWeight.w600)),
             Text('Server settings',
                 style: context.label(10, color: context.c.muted)),
           ],
         ),
         leading: IconButton(
+          tooltip: 'Back',
           onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back_rounded, size: 20),
         ),
@@ -74,50 +77,16 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SizedBox(
-                  width: 200,
+                  width: 220,
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(10, 8, 10, 20),
                     children: [
                       for (var index = 0; index < _tabs.length; index++)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(9),
-                            onTap: () => setState(() => _tab = index),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: _tab == index
-                                    ? context.c.active
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                              child: Row(
-                                children: [
-                                  AppIcon(
-                                    _tabs[index].$1,
-                                    size: 15,
-                                    color: _tab == index
-                                        ? context.c.accent
-                                        : context.c.muted,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _tabs[index].$2,
-                                    style: context.label(12.5,
-                                        weight: _tab == index
-                                            ? FontWeight.w600
-                                            : FontWeight.w500,
-                                        color: _tab == index
-                                            ? context.c.text
-                                            : context.c.textDim),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                        SettingsNavItem(
+                            icon: _tabs[index].$1,
+                            label: _tabs[index].$2,
+                            selected: _tab == index,
+                            onTap: () => setState(() => _tab = index)),
                     ],
                   ),
                 ),
@@ -142,26 +111,10 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
             )
           : Column(
               children: [
-                SizedBox(
-                  height: 50,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    children: [
-                      for (var index = 0; index < _tabs.length; index++)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: ChoiceChip(
-                            selected: _tab == index,
-                            showCheckmark: false,
-                            label: Text(_tabs[index].$2),
-                            onSelected: (_) => setState(() => _tab = index),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+                AppSectionTabs(
+                    tabs: _tabs,
+                    selectedIndex: _tab,
+                    onSelected: (index) => setState(() => _tab = index)),
                 Divider(height: 1, color: context.c.line),
                 Expanded(
                   child: ListView(
@@ -380,14 +333,21 @@ class _OverviewTabState extends State<_OverviewTab> {
         ),
         const SizedBox(height: 4),
         DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: _notificationLevel ?? 'all',
           decoration: const InputDecoration(
             labelText: 'Default notification level',
             helperText: 'Applied to new members who join the server.',
           ),
           items: const [
-            DropdownMenuItem(value: 'all', child: Text('All messages')),
-            DropdownMenuItem(value: 'mentions', child: Text('Mentions only')),
+            DropdownMenuItem(
+                value: 'all',
+                child: Text('All messages',
+                    maxLines: 1, overflow: TextOverflow.ellipsis)),
+            DropdownMenuItem(
+                value: 'mentions',
+                child: Text('Mentions only',
+                    maxLines: 1, overflow: TextOverflow.ellipsis)),
             DropdownMenuItem(value: 'nothing', child: Text('Nothing')),
           ],
           onChanged: canManage
@@ -465,10 +425,19 @@ class _OverviewTabState extends State<_OverviewTab> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: context.label(9.5,
                       color: context.c.muted, weight: FontWeight.w600)),
               const SizedBox(height: 3),
-              Text(value, style: context.display(17, weight: FontWeight.w600)),
+              SizedBox(
+                  height: MediaQuery.textScalerOf(context).scale(22),
+                  child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(value,
+                          style:
+                              context.display(17, weight: FontWeight.w600)))),
             ],
           ),
         ),
@@ -511,42 +480,24 @@ class _RolesTabState extends State<_RolesTab> {
   }
 
   Future<void> _create() async {
-    final name = TextEditingController(text: 'New role');
-    final created = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Create role'),
-        content: TextField(
-          controller: name,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Role name'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Create')),
-        ],
-      ),
-    );
-    if (created != true) {
-      name.dispose();
-      return;
-    }
     final state = FlackleScope.read(context);
-    try {
-      await state.client.batchRoles(widget.serverId, {
-        'creates': [
-          {'name': name.text.trim(), 'permissions': '0'}
-        ],
-      });
-      await _load();
-    } catch (failure) {
-      if (mounted) showAppToast(context, failure.toString());
-    }
-    name.dispose();
+    await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AppTextEntryDialog<bool>(
+            title: 'Create role',
+            label: 'Role name',
+            initialValue: 'New role',
+            confirmLabel: 'Create role',
+            onSubmit: (name) async {
+              await state.client.batchRoles(widget.serverId, {
+                'creates': [
+                  {'name': name, 'permissions': '0'}
+                ],
+              });
+              if (mounted) await _load();
+              return true;
+            }));
   }
 
   @override
@@ -562,10 +513,13 @@ class _RolesTabState extends State<_RolesTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
           children: [
             Text('Roles', style: context.display(18, weight: FontWeight.w600)),
-            const Spacer(),
             if (canManage)
               FilledButton.icon(
                 onPressed: _create,
@@ -593,44 +547,48 @@ class _RolesTabState extends State<_RolesTab> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: c.line),
               ),
-              child: ListTile(
-                dense: true,
-                leading: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: parseHexColor(role.color) ?? c.muted,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                title: Row(
-                  children: [
-                    if (role.iconEmoji != null) ...[
-                      EmojiGlyph(role.iconEmoji!, size: 13),
-                      const SizedBox(width: 5),
-                    ],
-                    Flexible(
-                      child: Text(role.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13)),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                child: ListTile(
+                  dense: true,
+                  leading: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: parseHexColor(role.color) ?? c.muted,
+                      shape: BoxShape.circle,
                     ),
-                    if (role.isEveryone)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: Tag('EVERYONE', small: true),
+                  ),
+                  title: Row(
+                    children: [
+                      if (role.iconEmoji != null) ...[
+                        EmojiGlyph(role.iconEmoji!, size: 13),
+                        const SizedBox(width: 5),
+                      ],
+                      Flexible(
+                        child: Text(role.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13)),
                       ),
-                  ],
+                      if (role.isEveryone)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Tag('EVERYONE', small: true),
+                        ),
+                    ],
+                  ),
+                  subtitle: Text(
+                    '${role.memberCount ?? 0} members · ${Permission.list(role.permissions).length} permissions'
+                    '${role.hoist ? ' · shown separately' : ''}',
+                    style: TextStyle(fontSize: 10, color: c.muted),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, size: 17),
+                  onTap: canManage && !role.isEveryone
+                      ? () => _editRole(role)
+                      : null,
                 ),
-                subtitle: Text(
-                  '${role.memberCount ?? 0} members · ${Permission.list(role.permissions).length} permissions'
-                  '${role.hoist ? ' · shown separately' : ''}',
-                  style: TextStyle(fontSize: 10, color: c.muted),
-                ),
-                trailing: const Icon(Icons.chevron_right_rounded, size: 17),
-                onTap: canManage && !role.isEveryone
-                    ? () => _editRole(role)
-                    : null,
               ),
             ),
         ],
@@ -648,31 +606,41 @@ class _RolesTabState extends State<_RolesTab> {
     final permissions = <String>{
       ...Permission.list(role.permissions),
     };
+    var saving = false;
+    String? saveError;
     await showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
           title: Text(role.name),
           content: SizedBox(
             width: 460,
-            height: 520,
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: name,
+                  enabled: !saving,
+                  maxLength: 100,
                   decoration: const InputDecoration(labelText: 'Role name'),
                 ),
                 const SizedBox(height: 10),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     ValueListenableBuilder<String?>(
                       valueListenable: iconEmoji,
                       builder: (context, value, _) => OutlinedButton.icon(
-                        onPressed: () async {
-                          final emoji = await showEmojiPicker(context,
-                              title: 'Role icon');
-                          if (emoji != null) iconEmoji.value = emoji;
-                        },
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final emoji = await showEmojiPicker(context,
+                                    title: 'Role icon');
+                                if (emoji != null) iconEmoji.value = emoji;
+                              },
                         icon: value == null
                             ? const Icon(Icons.add_reaction_outlined, size: 15)
                             : EmojiGlyph(value, size: 15),
@@ -680,49 +648,50 @@ class _RolesTabState extends State<_RolesTab> {
                             Text(value == null ? 'Role emoji' : 'Change emoji'),
                       ),
                     ),
-                    const SizedBox(width: 8),
                     ValueListenableBuilder<String?>(
                       valueListenable: color,
                       builder: (context, value, _) => OutlinedButton.icon(
-                        onPressed: () async {
-                          final picked = await showDialog<String>(
-                            context: context,
-                            builder: (context) => SimpleDialog(
-                              title: const Text('Role colour'),
-                              children: [
-                                for (final hex in const [
-                                  '#ffffff',
-                                  '#ef5252',
-                                  '#e0a13d',
-                                  '#9ad14b',
-                                  '#2fbd9f',
-                                  '#4a9be8',
-                                  '#8b6ce8',
-                                  '#e05ea8',
-                                ])
-                                  SimpleDialogOption(
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(hex),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 14,
-                                          height: 14,
-                                          decoration: BoxDecoration(
-                                            color: parseHexColor(hex),
-                                            shape: BoxShape.circle,
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final picked = await showDialog<String>(
+                                  context: context,
+                                  builder: (context) => SimpleDialog(
+                                    title: const Text('Role colour'),
+                                    children: [
+                                      for (final hex in const [
+                                        '#ffffff',
+                                        '#ef5252',
+                                        '#e0a13d',
+                                        '#9ad14b',
+                                        '#2fbd9f',
+                                        '#4a9be8',
+                                        '#8b6ce8',
+                                        '#e05ea8',
+                                      ])
+                                        SimpleDialogOption(
+                                          onPressed: () =>
+                                              Navigator.of(context).pop(hex),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 14,
+                                                height: 14,
+                                                decoration: BoxDecoration(
+                                                  color: parseHexColor(hex),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(hex),
+                                            ],
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        Text(hex),
-                                      ],
-                                    ),
+                                    ],
                                   ),
-                              ],
-                            ),
-                          );
-                          if (picked != null) color.value = picked;
-                        },
+                                );
+                                if (picked != null) color.value = picked;
+                              },
                         icon: Container(
                           width: 14,
                           height: 14,
@@ -742,101 +711,128 @@ class _RolesTabState extends State<_RolesTab> {
                   title: const Text('Display separately',
                       style: TextStyle(fontSize: 12.5)),
                   value: hoist,
-                  onChanged: (value) => setDialogState(() => hoist = value),
+                  onChanged: saving
+                      ? null
+                      : (value) => setDialogState(() => hoist = value),
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Allow anyone to @mention',
                       style: TextStyle(fontSize: 12.5)),
                   value: mentionable,
-                  onChanged: (value) =>
-                      setDialogState(() => mentionable = value),
+                  onChanged: saving
+                      ? null
+                      : (value) => setDialogState(() => mentionable = value),
                 ),
                 const Divider(),
-                Expanded(
-                  child: ListView(
-                    children: [
-                      for (final entry in Permission.bits.entries)
-                        CheckboxListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            Permission.labels[entry.key] ?? entry.key,
-                            style: const TextStyle(fontSize: 11.5),
-                          ),
-                          value: permissions.contains(entry.key),
-                          onChanged: (value) => setDialogState(() {
-                            if (value == true) {
-                              permissions.add(entry.key);
-                            } else {
-                              permissions.remove(entry.key);
-                            }
-                          }),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final entry in Permission.bits.entries)
+                      CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          Permission.labels[entry.key] ?? entry.key,
+                          style: const TextStyle(fontSize: 11.5),
                         ),
-                    ],
-                  ),
+                        value: permissions.contains(entry.key),
+                        onChanged: saving
+                            ? null
+                            : (value) => setDialogState(() {
+                                  if (value == true) {
+                                    permissions.add(entry.key);
+                                  } else {
+                                    permissions.remove(entry.key);
+                                  }
+                                }),
+                      ),
+                  ],
                 ),
+                const SectionLabel('Danger zone'),
+                TextButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final confirmed = await confirmAction(context,
+                              title: 'Delete ${role.name}?',
+                              body: 'Members keep their other roles.',
+                              confirmLabel: 'Delete',
+                              danger: true);
+                          if (!confirmed) return;
+                          try {
+                            await state.client.batchRoles(widget.serverId, {
+                              'deletes': [
+                                {'id': role.id}
+                              ]
+                            });
+                            if (context.mounted) Navigator.of(context).pop();
+                            await _load();
+                          } catch (failure) {
+                            if (context.mounted)
+                              showAppToast(context, failure.toString());
+                          }
+                        },
+                  child: Text('Delete role',
+                      style: TextStyle(color: context.c.danger)),
+                ),
+                if (saveError != null) InlineNotice(saveError!),
               ],
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () async {
-                final confirmed = await confirmAction(context,
-                    title: 'Delete ${role.name}?',
-                    body: 'Members keep their other roles.',
-                    confirmLabel: 'Delete',
-                    danger: true);
-                if (!confirmed) return;
-                try {
-                  await state.client.batchRoles(widget.serverId, {
-                    'deletes': [
-                      {'id': role.id}
-                    ]
-                  });
-                  if (context.mounted) Navigator.of(context).pop();
-                  await _load();
-                } catch (failure) {
-                  if (context.mounted)
-                    showAppToast(context, failure.toString());
-                }
-              },
-              child: Text('Delete', style: TextStyle(color: context.c.danger)),
-            ),
-            TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: saving ? null : () => Navigator.of(context).pop(),
                 child: const Text('Cancel')),
             FilledButton(
-              onPressed: () async {
-                var bits = BigInt.zero;
-                for (final name in permissions) {
-                  bits |= BigInt.from(Permission.bits[name] ?? 0);
-                }
-                try {
-                  await state.client.batchRoles(widget.serverId, {
-                    'updates': [
-                      {
-                        'id': role.id,
-                        'name': name.text.trim(),
-                        'permissions': bits.toString(),
-                        'color': color.value,
-                        'hoist': hoist,
-                        'mentionable': mentionable,
-                        'icon_emoji': iconEmoji.value,
-                        if (iconEmoji.value == null) 'clear_icon': true,
-                        if (role.updatedAt != null)
-                          'expected_updated_at': role.updatedAt,
+              onPressed: saving
+                  ? null
+                  : () async {
+                      if (name.text.trim().isEmpty) {
+                        setDialogState(() => saveError = 'Enter a role name.');
+                        return;
                       }
-                    ],
-                  });
-                  if (context.mounted) Navigator.of(context).pop();
-                  await _load();
-                } catch (failure) {
-                  if (context.mounted)
-                    showAppToast(context, failure.toString());
-                }
-              },
-              child: const Text('Save role'),
+                      setDialogState(() {
+                        saving = true;
+                        saveError = null;
+                      });
+                      var bits = BigInt.zero;
+                      for (final name in permissions) {
+                        bits |= BigInt.from(Permission.bits[name] ?? 0);
+                      }
+                      try {
+                        await state.client.batchRoles(widget.serverId, {
+                          'updates': [
+                            {
+                              'id': role.id,
+                              'name': name.text.trim(),
+                              'permissions': bits.toString(),
+                              'color': color.value,
+                              'hoist': hoist,
+                              'mentionable': mentionable,
+                              'icon_emoji': iconEmoji.value,
+                              if (iconEmoji.value == null) 'clear_icon': true,
+                              if (role.updatedAt != null)
+                                'expected_updated_at': role.updatedAt,
+                            }
+                          ],
+                        });
+                        if (context.mounted) Navigator.of(context).pop();
+                        await _load();
+                      } catch (failure) {
+                        if (context.mounted)
+                          setDialogState(() => saveError = failure.toString());
+                      } finally {
+                        if (context.mounted)
+                          setDialogState(() => saving = false);
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Save role'),
             ),
           ],
         ),
@@ -1206,11 +1202,14 @@ class _InvitesTabState extends State<_InvitesTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
           children: [
             Text('Invites',
                 style: context.display(18, weight: FontWeight.w600)),
-            const Spacer(),
             FilledButton.icon(
               onPressed: _create,
               icon: const Icon(Icons.add_link_rounded, size: 16),
@@ -1392,10 +1391,13 @@ class _BansTabState extends State<_BansTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
           children: [
             Text('Bans', style: context.display(18, weight: FontWeight.w600)),
-            const Spacer(),
             FilledButton.icon(
               onPressed: _addBan,
               icon: const Icon(Icons.person_off_outlined, size: 16),
@@ -1699,13 +1701,18 @@ class _LiftsTabState extends State<_LiftsTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const AppIcon('gift', size: 18, color: Color(0xFFE0A13D)),
-                  const SizedBox(width: 8),
-                  Text('Level ${info.level}',
-                      style: context.display(17, weight: FontWeight.w600)),
-                  const Spacer(),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    const AppIcon('gift', size: 18, color: Color(0xFFE0A13D)),
+                    const SizedBox(width: 8),
+                    Text('Level ${info.level}',
+                        style: context.display(17, weight: FontWeight.w600)),
+                  ]),
                   Text('${info.count} / ${info.nextLevelAt}',
                       style: context.label(11, color: c.muted)),
                 ],

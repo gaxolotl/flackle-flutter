@@ -159,8 +159,11 @@ class FlackleWordmark extends StatelessWidget {
         children: [
           FlackleMark(size: markSize),
           const SizedBox(width: 9),
-          Text(
+          Flexible(
+              child: Text(
             'Flackle',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontFamily: 'Satoshi',
               fontSize: fontSize,
@@ -168,7 +171,7 @@ class FlackleWordmark extends StatelessWidget {
               letterSpacing: -0.6,
               color: context.c.text,
             ),
-          ),
+          )),
           if (showBeta) ...[
             const SizedBox(width: 7),
             Container(

@@ -32,6 +32,7 @@ class _StatsPageState extends State<StatsPage> {
   }
 
   Future<void> _load() async {
+    if (_loading && _bundle != null) return;
     final state = FlackleScope.read(context);
     setState(() {
       _loading = true;
@@ -72,7 +73,8 @@ class _StatsPageState extends State<StatsPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.channel.name),
+            Text(widget.channel.name,
+                maxLines: 1, overflow: TextOverflow.ellipsis),
             Text('Channel analytics',
                 style: TextStyle(
                     color: c.muted,
@@ -82,7 +84,7 @@ class _StatsPageState extends State<StatsPage> {
         ),
         actions: [
           IconButton(
-            onPressed: _load,
+            onPressed: _loading ? null : _load,
             tooltip: 'Refresh stats',
             icon: const Icon(Icons.refresh_rounded, size: 19),
           ),
@@ -97,18 +99,31 @@ class _StatsPageState extends State<StatsPage> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                     children: [
-                      Row(
-                        children: [
-                          _metric(context, 'Members',
-                              '${bundle?.memberCount ?? 0}', 'users'),
-                          const SizedBox(width: 9),
-                          _metric(context, 'Online',
-                              '${bundle?.presenceCount ?? 0}', 'wifi'),
-                          const SizedBox(width: 9),
-                          _metric(context, 'In voice',
-                              '${bundle?.voiceCount ?? 0}', 'speaker'),
-                        ],
-                      ),
+                      LayoutBuilder(builder: (context, constraints) {
+                        final columns = constraints.maxWidth < 420 ? 2 : 3;
+                        final width =
+                            (constraints.maxWidth - (columns - 1) * 9) /
+                                columns;
+                        return Wrap(spacing: 9, runSpacing: 9, children: [
+                          for (final metric in [
+                            ('Members', '${bundle?.memberCount ?? 0}', 'users'),
+                            (
+                              'Online',
+                              '${bundle?.presenceCount ?? 0}',
+                              'online'
+                            ),
+                            (
+                              'In voice',
+                              '${bundle?.voiceCount ?? 0}',
+                              'speaker'
+                            ),
+                          ])
+                            SizedBox(
+                                width: width,
+                                child: _metric(
+                                    context, metric.$1, metric.$2, metric.$3)),
+                        ]);
+                      }),
                       const SizedBox(height: 18),
                       if (bundle != null && bundle.scopes.isNotEmpty) ...[
                         Row(
@@ -179,36 +194,42 @@ class _StatsPageState extends State<StatsPage> {
   Widget _metric(
       BuildContext context, String label, String value, String icon) {
     final c = context.c;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(
-          color: c.panel,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: c.line),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: c.panel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (icon == 'online')
+                const PresenceDot('online', size: 13)
+              else
                 AppIcon(icon, size: 13, color: c.accent),
-                const SizedBox(width: 5),
-                Expanded(
-                  child: Text(label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.label(10,
-                          color: c.muted, weight: FontWeight.w600)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 7),
-            Text(value,
-                style: context.display(24,
-                    weight: FontWeight.w600, letterSpacing: -0.8)),
-          ],
-        ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.label(10,
+                        color: c.muted, weight: FontWeight.w600)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          SizedBox(
+              height: MediaQuery.textScalerOf(context).scale(28),
+              child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(value,
+                      style: context.display(24,
+                          weight: FontWeight.w600, letterSpacing: -0.8)))),
+        ],
       ),
     );
   }

@@ -12,6 +12,7 @@ Future<void> openAddServer(BuildContext context) async {
   final state = FlackleScope.read(context);
   await showDialog<void>(
     context: context,
+    barrierDismissible: false,
     builder: (context) => _AddServerDialog(state: state),
   );
 }
@@ -40,6 +41,7 @@ class _AddServerDialogState extends State<_AddServerDialog> {
   }
 
   Future<void> _submit() async {
+    if (_busy) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -124,7 +126,8 @@ class _AddServerDialogState extends State<_AddServerDialog> {
                         style: context.display(19, weight: FontWeight.w600)),
                   ),
                   IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    tooltip: 'Close',
+                    onPressed: _busy ? null : () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close_rounded, size: 18),
                   ),
                 ],
@@ -141,6 +144,9 @@ class _AddServerDialogState extends State<_AddServerDialog> {
               if (_mode == 'create') ...[
                 TextField(
                   controller: _name,
+                  enabled: !_busy,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
                   autofocus: true,
                   maxLength: 100,
                   decoration: const InputDecoration(
@@ -156,6 +162,10 @@ class _AddServerDialogState extends State<_AddServerDialog> {
               ] else ...[
                 TextField(
                   controller: _invite,
+                  enabled: !_busy,
+                  autocorrect: false,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
                   autofocus: true,
                   decoration: const InputDecoration(
                     labelText: 'Invite link or code',
@@ -171,30 +181,26 @@ class _AddServerDialogState extends State<_AddServerDialog> {
               ],
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: c.danger.withValues(alpha: 0.1),
-                    border: Border.all(color: c.danger.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_error!,
-                      style: TextStyle(color: c.danger, fontSize: 12)),
-                ),
+                InlineNotice(_error!),
               ],
               const SizedBox(height: 18),
               SizedBox(
                 height: 44,
-                child: FilledButton(
-                  onPressed: _busy ? null : _submit,
-                  child: _busy
-                      ? const SizedBox(
-                          width: 17,
-                          height: 17,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : Text(
-                          _mode == 'create' ? 'Create server' : 'Join server'),
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _mode == 'create' ? _name : _invite,
+                  builder: (context, value, _) => FilledButton(
+                    onPressed:
+                        _busy || value.text.trim().isEmpty ? null : _submit,
+                    child: _busy
+                        ? const SizedBox(
+                            width: 17,
+                            height: 17,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : Text(_mode == 'create'
+                            ? 'Create server'
+                            : 'Join server'),
+                  ),
                 ),
               ),
             ],
@@ -210,10 +216,12 @@ class _AddServerDialogState extends State<_AddServerDialog> {
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(9),
-        onTap: () => setState(() {
-          _mode = mode;
-          _error = null;
-        }),
+        onTap: _busy
+            ? null
+            : () => setState(() {
+                  _mode = mode;
+                  _error = null;
+                }),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           alignment: Alignment.center,

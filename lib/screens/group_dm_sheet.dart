@@ -146,10 +146,11 @@ class _GroupDmSheetState extends State<_GroupDmSheet> {
             padding: const EdgeInsets.fromLTRB(18, 10, 8, 6),
             child: Row(
               children: [
-                Text('Group details',
-                    style: context.display(17, weight: FontWeight.w600)),
-                const Spacer(),
+                Expanded(
+                    child: Text('Group details',
+                        style: context.display(17, weight: FontWeight.w600))),
                 IconButton(
+                  tooltip: 'Close group details',
                   onPressed: () => Navigator.of(context).pop(),
                   icon: const Icon(Icons.close_rounded, size: 18),
                 ),
@@ -174,12 +175,15 @@ class _GroupDmSheetState extends State<_GroupDmSheet> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Row(
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 6,
                   children: [
                     Text('Members (${members.length})',
                         style: context.label(11,
                             weight: FontWeight.w600, color: c.muted)),
-                    const Spacer(),
                     TextButton.icon(
                       onPressed: _busy ? null : _addPeople,
                       icon:

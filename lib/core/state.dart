@@ -54,7 +54,16 @@ class AppState extends ChangeNotifier {
   List<User> blocked = const [];
   FriendRequests friendRequests = const FriendRequests();
 
-  Target? active;
+  Target? _active;
+  int _activeRevision = 0;
+  Target? get active => _active;
+  set active(Target? target) {
+    _active = target;
+    _activeRevision++;
+  }
+
+  /// Distinguishes reopening a target from unrelated data or presence updates.
+  int get activeRevision => _activeRevision;
   List<Message> messages = const [];
 
   /// One-shot requests to reveal a message after its channel finishes loading.
@@ -1124,6 +1133,20 @@ class AppState extends ChangeNotifier {
     for (final entry in notifications) {
       entry.read = true;
     }
+    notifyListeners();
+  }
+
+  void markNotificationRead(AppNotification notification) {
+    notification.read = true;
+    notifyListeners();
+  }
+
+  void updateServerNotificationLevel(String serverId, String level) {
+    if (_disposed) return;
+    final current = serverSettings[serverId];
+    serverSettings[serverId] = current == null
+        ? ServerUserSettings(serverId: serverId, notificationLevel: level)
+        : current.copyWith(notificationLevel: level);
     notifyListeners();
   }
 

@@ -87,6 +87,206 @@ class WorkspaceHeader extends StatelessWidget {
       );
 }
 
+class AppSectionTabs extends StatelessWidget {
+  const AppSectionTabs(
+      {required this.tabs,
+      required this.selectedIndex,
+      required this.onSelected,
+      super.key});
+
+  final List<(String, String)> tabs;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(children: [
+          for (var index = 0; index < tabs.length; index++)
+            Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: ChoiceChip(
+                  selected: selectedIndex == index,
+                  showCheckmark: false,
+                  avatar: AppIcon(tabs[index].$1,
+                      size: 14,
+                      color: selectedIndex == index
+                          ? context.c.accent
+                          : context.c.muted),
+                  label: Text(tabs[index].$2),
+                  labelStyle: context.label(12,
+                      color: selectedIndex == index
+                          ? context.c.accent
+                          : context.c.textDim,
+                      weight: selectedIndex == index
+                          ? FontWeight.w700
+                          : FontWeight.w500),
+                  onSelected: (_) => onSelected(index),
+                )),
+        ]),
+      );
+}
+
+class SettingsNavItem extends StatelessWidget {
+  const SettingsNavItem(
+      {required this.icon,
+      required this.label,
+      required this.selected,
+      required this.onTap,
+      super.key});
+  final String icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        selected: selected,
+        button: true,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(9),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 48),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              decoration: BoxDecoration(
+                  color: selected ? context.c.accentDim : Colors.transparent,
+                  borderRadius: BorderRadius.circular(9)),
+              child: Row(children: [
+                AppIcon(icon,
+                    size: 16,
+                    color: selected ? context.c.accent : context.c.muted),
+                const SizedBox(width: 9),
+                Expanded(
+                    child: Text(label,
+                        style: context.label(12.5,
+                            weight:
+                                selected ? FontWeight.w600 : FontWeight.w500,
+                            color: selected
+                                ? context.c.text
+                                : context.c.textDim))),
+              ]),
+            ),
+          ),
+        ),
+      );
+}
+
+class InlineNotice extends StatelessWidget {
+  const InlineNotice(this.message, {super.key});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        liveRegion: true,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: context.c.danger.withValues(alpha: 0.1),
+            border: Border.all(color: context.c.danger.withValues(alpha: 0.3)),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.error_outline_rounded,
+                size: 18, color: context.c.danger),
+            const SizedBox(width: 9),
+            Expanded(
+                child: Text(message,
+                    style: context.label(12.5,
+                        color: context.c.danger, height: 1.5))),
+          ]),
+        ),
+      );
+}
+
+class AppTextEntryDialog<T> extends StatefulWidget {
+  const AppTextEntryDialog(
+      {required this.title,
+      required this.label,
+      required this.confirmLabel,
+      required this.onSubmit,
+      this.initialValue = '',
+      super.key});
+  final String title;
+  final String label;
+  final String confirmLabel;
+  final String initialValue;
+  final Future<T> Function(String value) onSubmit;
+
+  @override
+  State<AppTextEntryDialog<T>> createState() => _AppTextEntryDialogState<T>();
+}
+
+class _AppTextEntryDialogState<T> extends State<AppTextEntryDialog<T>> {
+  late final _controller = TextEditingController(text: widget.initialValue);
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy || _controller.text.trim().isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.onSubmit(_controller.text.trim());
+      if (mounted) Navigator.of(context).pop(result);
+    } catch (failure) {
+      if (mounted) setState(() => _error = failure.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: !_busy,
+        child: AlertDialog(
+          scrollable: true,
+          title: Text(widget.title),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+                controller: _controller,
+                autofocus: true,
+                enabled: !_busy,
+                maxLength: 100,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+                decoration: InputDecoration(labelText: widget.label)),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              InlineNotice(_error!)
+            ],
+          ]),
+          actions: [
+            TextButton(
+                onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                child: const Text('Cancel')),
+            ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _controller,
+                builder: (context, value, _) => FilledButton(
+                    onPressed:
+                        _busy || value.text.trim().isEmpty ? null : _submit,
+                    child: _busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Text(widget.confirmLabel))),
+          ],
+        ),
+      );
+}
+
 class AppAvatar extends StatelessWidget {
   const AppAvatar({
     required this.url,

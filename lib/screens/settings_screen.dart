@@ -47,6 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text('Settings',
             style: context.display(17, weight: FontWeight.w600)),
         leading: IconButton(
+          tooltip: 'Back',
           onPressed: () => Navigator.of(context).maybePop(),
           icon: const Icon(Icons.arrow_back_rounded, size: 20),
         ),
@@ -71,29 +72,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             )
           : Column(
               children: [
-                SizedBox(
-                  height: 60,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    children: [
-                      for (var index = 0; index < _tabs.length; index++)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: ChoiceChip(
-                            selected: _tab == index,
-                            showCheckmark: false,
-                            avatar: AppIcon(_tabs[index].$1,
-                                size: 14,
-                                color: _tab == index ? c.accent : c.muted),
-                            label: Text(_tabs[index].$2),
-                            onSelected: (_) => setState(() => _tab = index),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+                AppSectionTabs(
+                    tabs: _tabs,
+                    selectedIndex: _tab,
+                    onSelected: (index) => setState(() => _tab = index)),
                 Divider(height: 1, color: c.line),
                 Expanded(child: _body(context)),
               ],
@@ -101,36 +83,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _navTile(BuildContext context, int index) {
-    final c = context.c;
-    final selected = _tab == index;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(9),
-        onTap: () => setState(() => _tab = index),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? c.accentDim : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Row(
-            children: [
-              AppIcon(_tabs[index].$1,
-                  size: 16, color: selected ? c.accent : c.muted),
-              const SizedBox(width: 9),
-              Text(_tabs[index].$2,
-                  style: context.label(12.5,
-                      weight: selected ? FontWeight.w600 : FontWeight.w500,
-                      color: selected ? c.text : c.textDim)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
+  Widget _navTile(BuildContext context, int index) => SettingsNavItem(
+      icon: _tabs[index].$1,
+      label: _tabs[index].$2,
+      selected: _tab == index,
+      onTap: () => setState(() => _tab = index));
   Widget _body(BuildContext context) {
     final child = switch (_tab) {
       0 => const _AccountTab(),
@@ -760,52 +717,58 @@ class _NotificationsTab extends StatelessWidget {
         const SizedBox(height: 10),
         for (final server in state.servers)
           Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
-              children: [
-                AppAvatar(
-                    url: server.iconUrl,
-                    name: server.name,
-                    size: 26,
-                    square: true),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(server.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.label(12.5)),
-                ),
-                DropdownButton<String>(
-                  value: state.serverSettings[server.id]?.notificationLevel ??
-                      'all',
-                  underline: const SizedBox.shrink(),
-                  items: const [
-                    DropdownMenuItem(value: 'all', child: Text('All messages')),
-                    DropdownMenuItem(
-                        value: 'mentions', child: Text('Mentions only')),
-                    DropdownMenuItem(value: 'nothing', child: Text('Nothing')),
-                  ],
-                  onChanged: (value) async {
-                    if (value == null) return;
-                    try {
-                      await state.client.updateServerUserSettings(server.id, {
-                        'notification_level': value,
-                      });
-                      final current = state.serverSettings[server.id];
-                      state.serverSettings[server.id] = current == null
-                          ? ServerUserSettings(
-                              serverId: server.id,
-                              notificationLevel: value,
-                            )
-                          : current.copyWith(notificationLevel: value);
-                    } catch (failure) {
-                      if (context.mounted)
-                        showAppToast(context, failure.toString());
-                    }
-                  },
-                ),
-              ],
-            ),
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    AppAvatar(
+                        url: server.iconUrl,
+                        name: server.name,
+                        size: 28,
+                        square: true),
+                    const SizedBox(width: 9),
+                    Expanded(
+                        child: Text(server.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.label(13))),
+                  ]),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue:
+                        state.serverSettings[server.id]?.notificationLevel ??
+                            'all',
+                    isExpanded: true,
+                    decoration:
+                        const InputDecoration(labelText: 'Notification level'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'all',
+                          child: Text('All messages',
+                              maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      DropdownMenuItem(
+                          value: 'mentions',
+                          child: Text('Mentions only',
+                              maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      DropdownMenuItem(
+                          value: 'nothing',
+                          child: Text('Nothing',
+                              maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (value) async {
+                      if (value == null) return;
+                      try {
+                        await state.client.updateServerUserSettings(
+                            server.id, {'notification_level': value});
+                        state.updateServerNotificationLevel(server.id, value);
+                      } catch (failure) {
+                        if (context.mounted)
+                          showAppToast(context, failure.toString());
+                      }
+                    },
+                  ),
+                ]),
           ),
       ],
     );
@@ -1344,15 +1307,18 @@ class _AboutTab extends StatelessWidget {
           children: [
             const FlackleMark(size: 44),
             const SizedBox(width: 12),
-            Column(
+            Expanded(
+                child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Flackle Mobile',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: context.display(20, weight: FontWeight.w600)),
-                Text('Version 1.0.3 · Flutter',
+                Text('Version 1.0.4 · Flutter',
                     style: context.label(11.5, color: c.muted)),
               ],
-            ),
+            )),
           ],
         ),
         const SizedBox(height: 18),

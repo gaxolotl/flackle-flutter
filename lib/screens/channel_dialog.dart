@@ -28,6 +28,7 @@ Future<void> openChannelDialog(
 }) async {
   await showDialog<void>(
     context: context,
+    barrierDismissible: false,
     builder: (context) => _ChannelDialog(
       serverId: serverId,
       channel: channel,
@@ -36,90 +37,39 @@ Future<void> openChannelDialog(
   );
 }
 
-Future<Category?> openCategoryCreate(
-    BuildContext context, String serverId) async {
-  final controller = TextEditingController();
+Future<Category?> openCategoryCreate(BuildContext context, String serverId) {
   final state = FlackleScope.read(context);
-  final server = state.serverById(serverId);
-  Category? created;
-  await showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Create category'),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Category name'),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            final name = controller.text.trim();
-            if (name.isEmpty) return;
-            try {
-              created = await state.client.createCategory(serverId, name);
-              await state.reloadBundle(serverId);
-              if (context.mounted) Navigator.of(context).pop();
-              if (context.mounted) {
-                showAppToast(context,
-                    'Category created in ${server?.name ?? 'server'}.');
-              }
-            } catch (failure) {
-              if (context.mounted) showAppToast(context, failure.toString());
-            }
-          },
-          child: const Text('Create'),
-        ),
-      ],
-    ),
-  );
-  controller.dispose();
-  return created;
+  return showDialog<Category>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AppTextEntryDialog<Category>(
+          title: 'Create category',
+          label: 'Category name',
+          confirmLabel: 'Create category',
+          onSubmit: (name) async {
+            final category = await state.client.createCategory(serverId, name);
+            await state.reloadBundle(serverId);
+            return category;
+          }));
 }
 
 Future<void> openCategoryEdit(
-  BuildContext context,
-  String serverId,
-  Category category,
-) async {
-  final controller = TextEditingController(text: category.name);
+    BuildContext context, String serverId, Category category) async {
   final state = FlackleScope.read(context);
-  await showDialog<void>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Edit category'),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Category name'),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            final name = controller.text.trim();
-            if (name.isEmpty) return;
-            Navigator.of(context).pop();
-            try {
-              await state.client.updateCategory(serverId, category.id, name);
-              await state.reloadBundle(serverId);
-            } catch (failure) {
-              if (context.mounted) showAppToast(context, failure.toString());
-            }
-          },
-          child: const Text('Save'),
-        ),
-      ],
-    ),
-  );
-  controller.dispose();
+  await showDialog<Category>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AppTextEntryDialog<Category>(
+          title: 'Edit category',
+          label: 'Category name',
+          initialValue: category.name,
+          confirmLabel: 'Save changes',
+          onSubmit: (name) async {
+            final updated =
+                await state.client.updateCategory(serverId, category.id, name);
+            await state.reloadBundle(serverId);
+            return updated;
+          }));
 }
 
 class _ChannelDialog extends StatefulWidget {
@@ -168,12 +118,16 @@ class _ChannelDialogState extends State<_ChannelDialog> {
       setState(() => _error = 'Give the channel a name.');
       return;
     }
+    final slowmode = int.tryParse(_slowmode.text.trim());
+    if (slowmode == null || slowmode < 0 || slowmode > 21600) {
+      setState(() => _error = 'Enter slow mode between 0 and 21600 seconds.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final slowmode = int.tryParse(_slowmode.text.trim()) ?? 0;
       if (editing) {
         await state.client.updateChannel(widget.serverId, widget.channel!.id, {
           'name': name,
@@ -262,7 +216,8 @@ class _ChannelDialogState extends State<_ChannelDialog> {
                     ),
                   ),
                   IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    tooltip: 'Close',
+                    onPressed: _busy ? null : () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close_rounded, size: 18),
                   ),
                 ],
@@ -285,7 +240,9 @@ class _ChannelDialogState extends State<_ChannelDialog> {
                           padding: const EdgeInsets.only(right: 6),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(9),
-                            onTap: () => setState(() => _type = option.$1),
+                            onTap: _busy
+                                ? null
+                                : () => setState(() => _type = option.$1),
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 9),
                               decoration: BoxDecoration(
@@ -322,6 +279,7 @@ class _ChannelDialogState extends State<_ChannelDialog> {
               ],
               TextField(
                 controller: _name,
+                enabled: !_busy,
                 autofocus: true,
                 maxLength: 100,
                 decoration: const InputDecoration(
@@ -332,6 +290,7 @@ class _ChannelDialogState extends State<_ChannelDialog> {
               const SizedBox(height: 6),
               TextField(
                 controller: _topic,
+                enabled: !_busy,
                 maxLines: 2,
                 maxLength: 1024,
                 decoration: const InputDecoration(
@@ -341,6 +300,7 @@ class _ChannelDialogState extends State<_ChannelDialog> {
               ),
               const SizedBox(height: 6),
               DropdownButtonFormField<String?>(
+                isExpanded: true,
                 initialValue: _categoryId,
                 decoration: const InputDecoration(labelText: 'Category'),
                 items: [
@@ -349,10 +309,13 @@ class _ChannelDialogState extends State<_ChannelDialog> {
                   for (final category in categories)
                     DropdownMenuItem<String?>(
                       value: category.id,
-                      child: Text(category.name),
+                      child: Text(category.name,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
                 ],
-                onChanged: (value) => setState(() => _categoryId = value),
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() => _categoryId = value),
               ),
               Align(
                 alignment: Alignment.centerLeft,
@@ -373,6 +336,7 @@ class _ChannelDialogState extends State<_ChannelDialog> {
               const SizedBox(height: 6),
               TextField(
                 controller: _slowmode,
+                enabled: !_busy,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
                   labelText: 'Slow mode (seconds)',
@@ -384,7 +348,10 @@ class _ChannelDialogState extends State<_ChannelDialog> {
                   style: context.label(11,
                       weight: FontWeight.w600, color: c.muted)),
               const SizedBox(height: 7),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Container(
                     width: 38,
@@ -402,7 +369,6 @@ class _ChannelDialogState extends State<_ChannelDialog> {
                       size: 20,
                     ),
                   ),
-                  const SizedBox(width: 9),
                   OutlinedButton.icon(
                     onPressed: _busy
                         ? null
@@ -451,19 +417,13 @@ class _ChannelDialogState extends State<_ChannelDialog> {
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: c.danger.withValues(alpha: 0.1),
-                    border: Border.all(color: c.danger.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_error!,
-                      style: TextStyle(color: c.danger, fontSize: 12)),
-                ),
+                InlineNotice(_error!),
               ],
               const SizedBox(height: 16),
-              Row(
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 6,
+                runSpacing: 8,
                 children: [
                   if (editing)
                     TextButton.icon(
@@ -473,21 +433,23 @@ class _ChannelDialogState extends State<_ChannelDialog> {
                       label: const Text('Delete',
                           style: TextStyle(color: Color(0xFFEF5252))),
                     ),
-                  const Spacer(),
                   TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _busy ? null : () => Navigator.of(context).pop(),
                     child: const Text('Cancel'),
                   ),
-                  const SizedBox(width: 6),
-                  FilledButton(
-                    onPressed: _busy ? null : _save,
-                    child: _busy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : Text(editing ? 'Save changes' : 'Create channel'),
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _name,
+                    builder: (context, value, _) => FilledButton(
+                      onPressed:
+                          _busy || value.text.trim().isEmpty ? null : _save,
+                      child: _busy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : Text(editing ? 'Save changes' : 'Create channel'),
+                    ),
                   ),
                 ],
               ),
@@ -506,7 +468,7 @@ class _ChannelDialogState extends State<_ChannelDialog> {
         : Color(int.parse('FF${hex.substring(1)}', radix: 16));
     return InkWell(
       borderRadius: BorderRadius.circular(99),
-      onTap: () => setState(() => _color = hex),
+      onTap: _busy ? null : () => setState(() => _color = hex),
       child: Container(
         width: 26,
         height: 26,

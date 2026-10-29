@@ -19,6 +19,7 @@ import 'screens/workspace_screen.dart';
 import 'ui/common.dart';
 import 'ui/emoji.dart';
 import 'ui/icons.dart';
+import 'ui/navigation.dart';
 
 Future<void> bootstrapFlackleApp() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -174,6 +175,8 @@ Future<void> showProfile(
   Member? member,
   String? serverId,
 }) async {
+  final state = FlackleScope.read(context);
+  final parentContext = context;
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -188,6 +191,11 @@ Future<void> showProfile(
         member: member,
         serverId: serverId,
         controller: controller,
+        onOpenConversation: (conversation) async {
+          if (parentContext.mounted) {
+            await openConversation(parentContext, state, conversation);
+          }
+        },
       ),
     ),
   );

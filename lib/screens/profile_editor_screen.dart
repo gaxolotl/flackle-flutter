@@ -23,6 +23,7 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   bool _busy = false;
   bool _uploadingAvatar = false;
   bool _uploadingBanner = false;
+  String? _error;
 
   AppState get _state => FlackleScope.read(context);
 
@@ -105,16 +106,21 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
   }
 
   Future<void> _save() async {
-    setState(() => _busy = true);
+    if (_busy || _uploadingAvatar || _uploadingBanner) return;
+    if (_name.text.trim() == (_state.me?.displayName ?? '').trim()) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      await _state.client.updateProfile(displayName: _name.text);
+      await _state.client.updateProfile(displayName: _name.text.trim());
       await _state.refreshMe();
       if (mounted) {
         showAppToast(context, 'Profile updated.');
         Navigator.of(context).maybePop();
       }
     } catch (failure) {
-      if (mounted) showAppToast(context, failure.toString());
+      if (mounted) setState(() => _error = failure.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -252,8 +258,10 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
                   const SizedBox(height: 6),
                   TextField(
                     controller: _name,
+                    enabled: !_busy,
                     maxLength: 100,
                     textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _save(),
                     decoration: InputDecoration(
                       hintText: me?.username ?? 'Display name',
                     ),
@@ -274,19 +282,32 @@ class _ProfileEditorScreenState extends State<ProfileEditorScreen> {
                         style: context.label(12.5, color: c.textDim)),
                   ),
                   const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _busy ? null : _save,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
+                  if (_error != null) ...[
+                    InlineNotice(_error!),
+                    const SizedBox(height: 12),
+                  ],
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _name,
+                    builder: (context, value, _) => FilledButton(
+                      onPressed: _busy ||
+                              _uploadingAvatar ||
+                              _uploadingBanner ||
+                              value.text.trim() ==
+                                  (me?.displayName ?? '').trim()
+                          ? null
+                          : _save,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                      ),
+                      child: _busy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Text('Save changes'),
                     ),
-                    child: _busy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Text('Save changes'),
                   ),
                 ],
               ),

@@ -28,16 +28,65 @@ class MemberPanel extends StatefulWidget {
 
 class _MemberPanelState extends State<MemberPanel> {
   String _query = '';
+  final _search = TextEditingController();
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final state = FlackleScope.read(context);
-      unawaited(state.loadMembers(widget.serverId));
-      unawaited(state.loadRoles(widget.serverId));
+      unawaited(_load());
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant MemberPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.serverId != widget.serverId) {
+      _search.clear();
+      _query = '';
+      _loading = true;
+      _error = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_load());
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool force = false}) async {
+    final state = FlackleScope.read(context);
+    final serverId = widget.serverId;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await Future.wait([
+        state.loadMembers(serverId, force: force),
+        state.loadRoles(serverId, force: force),
+      ]);
+      if (!state.members.containsKey(serverId)) {
+        throw StateError(
+            'Could not load members. Check your connection and try again.');
+      }
+    } catch (_) {
+      if (mounted && widget.serverId == serverId) {
+        setState(() => _error =
+            'Could not load members. Check your connection and try again.');
+      }
+    } finally {
+      if (mounted && widget.serverId == serverId) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   @override
@@ -54,16 +103,13 @@ class _MemberPanelState extends State<MemberPanel> {
         onlineIds.add(member.id);
       }
     }
-    final filtered = _query.isEmpty
+    final term = _query.trim().toLowerCase();
+    final filtered = term.isEmpty
         ? all
         : all
             .where((member) =>
-                member.displayName
-                    .toLowerCase()
-                    .contains(_query.toLowerCase()) ||
-                member.user.username
-                    .toLowerCase()
-                    .contains(_query.toLowerCase()))
+                member.displayName.toLowerCase().contains(term) ||
+                member.user.username.toLowerCase().contains(term))
             .toList();
     final hoistedRoles = roles
         .where((role) => role.hoist && !role.isEveryone)
@@ -126,6 +172,7 @@ class _MemberPanelState extends State<MemberPanel> {
                 if (widget.onClose != null)
                   IconButton(
                     onPressed: widget.onClose,
+                    tooltip: 'Close members',
                     icon: const Icon(Icons.close_rounded, size: 16),
                     visualDensity: VisualDensity.compact,
                   ),
@@ -135,65 +182,86 @@ class _MemberPanelState extends State<MemberPanel> {
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
             child: TextField(
+              controller: _search,
               onChanged: (value) => setState(() => _query = value),
               style: const TextStyle(fontSize: 12),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'Search members',
-                prefixIcon: Icon(Icons.search_rounded, size: 16),
+                prefixIcon: const Icon(Icons.search_rounded, size: 16),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          _search.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 18)),
                 isDense: true,
                 contentPadding:
-                    EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               ),
             ),
           ),
           Expanded(
-            child: all.isEmpty
+            child: _loading && all.isEmpty
                 ? const LoadingPane()
-                : Builder(builder: (context) {
-                    final entries = <Object>[];
-                    for (final role in hoistedRoles) {
-                      final list = byRole[role.id];
-                      if (list == null || list.isEmpty) continue;
-                      entries.add(_MemberSection(
-                        '${role.name.toUpperCase()}  -  ${list.length}',
-                        role: role,
-                      ));
-                      entries.addAll(list);
-                    }
-                    if (onlineFiltered.isNotEmpty) {
-                      entries.add(_MemberSection(
-                          'ONLINE  -  ${onlineFiltered.length}'));
-                      entries.addAll(onlineFiltered);
-                    }
-                    if (offlineFiltered.isNotEmpty) {
-                      entries.add(_MemberSection(
-                          'OFFLINE  -  ${offlineFiltered.length}'));
-                      entries.addAll(offlineFiltered);
-                    }
-                    if (filtered.isEmpty) {
-                      entries.add('No members match "${_query.trim()}".');
-                    }
-                    return ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 18),
-                      itemCount: entries.length,
-                      itemBuilder: (context, index) {
-                        final entry = entries[index];
-                        if (entry is _MemberSection) {
-                          return _section(entry.label, role: entry.role);
-                        }
-                        if (entry is String) {
-                          return Padding(
-                            padding: const EdgeInsets.all(18),
-                            child: Text(entry,
-                                style: TextStyle(color: c.muted, fontSize: 12)),
-                          );
-                        }
-                        final member = entry as Member;
-                        return _memberRow(context, state, member, roles,
-                            onlineIds.contains(member.id));
-                      },
-                    );
-                  }),
+                : _error != null && all.isEmpty
+                    ? ErrorPane(
+                        message: _error!, onRetry: () => _load(force: true))
+                    : all.isEmpty
+                        ? const EmptyPane(
+                            icon: Icons.people_outline_rounded,
+                            title: 'No members yet',
+                            detail: 'Members will appear here when they join.')
+                        : Builder(builder: (context) {
+                            final entries = <Object>[];
+                            for (final role in hoistedRoles) {
+                              final list = byRole[role.id];
+                              if (list == null || list.isEmpty) continue;
+                              entries.add(_MemberSection(
+                                '${role.name.toUpperCase()}  -  ${list.length}',
+                                role: role,
+                              ));
+                              entries.addAll(list);
+                            }
+                            if (onlineFiltered.isNotEmpty) {
+                              entries.add(_MemberSection(
+                                  'ONLINE  -  ${onlineFiltered.length}'));
+                              entries.addAll(onlineFiltered);
+                            }
+                            if (offlineFiltered.isNotEmpty) {
+                              entries.add(_MemberSection(
+                                  'OFFLINE  -  ${offlineFiltered.length}'));
+                              entries.addAll(offlineFiltered);
+                            }
+                            if (filtered.isEmpty) {
+                              entries
+                                  .add('No members match "${_query.trim()}".');
+                            }
+                            return ListView.builder(
+                              padding: const EdgeInsets.only(bottom: 18),
+                              itemCount: entries.length,
+                              itemBuilder: (context, index) {
+                                final entry = entries[index];
+                                if (entry is _MemberSection) {
+                                  return _section(entry.label,
+                                      role: entry.role);
+                                }
+                                if (entry is String) {
+                                  return Padding(
+                                    padding: const EdgeInsets.all(18),
+                                    child: Text(entry,
+                                        style: TextStyle(
+                                            color: c.muted, fontSize: 12)),
+                                  );
+                                }
+                                final member = entry as Member;
+                                return _memberRow(context, state, member, roles,
+                                    onlineIds.contains(member.id));
+                              },
+                            );
+                          }),
           ),
         ],
       ),

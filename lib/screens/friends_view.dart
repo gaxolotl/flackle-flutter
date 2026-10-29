@@ -358,10 +358,17 @@ class _FriendsViewState extends State<FriendsView> {
                     tooltip: 'Message',
                     icon: const AppIcon('dm', size: 17),
                   ),
-                  IconButton(
-                    onPressed: () => _remove(user),
-                    tooltip: 'Remove friend',
-                    icon: const AppIcon('close', size: 15),
+                  PopupMenuButton<String>(
+                    tooltip: 'Friend options',
+                    icon: const Icon(Icons.more_horiz_rounded, size: 19),
+                    onSelected: (_) => _remove(user),
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                          value: 'remove',
+                          child: Text('Remove friend',
+                              style:
+                                  context.label(13, color: context.c.danger))),
+                    ],
                   ),
                 ],
               ),
@@ -407,7 +414,10 @@ class _FriendsViewState extends State<FriendsView> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                FilledButton(
+                IconButton.filled(
+                  constraints:
+                      const BoxConstraints(minWidth: 48, minHeight: 48),
+                  tooltip: 'Accept friend request',
                   onPressed: () async {
                     try {
                       await state.client.acceptFriendRequest(request.id);
@@ -417,14 +427,13 @@ class _FriendsViewState extends State<FriendsView> {
                         showAppToast(context, failure.toString());
                     }
                   },
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(70, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                  child: const Text('Accept'),
+                  icon: const Icon(Icons.check_rounded, size: 19),
                 ),
                 const SizedBox(width: 6),
-                OutlinedButton(
+                IconButton.outlined(
+                  constraints:
+                      const BoxConstraints(minWidth: 48, minHeight: 48),
+                  tooltip: 'Ignore friend request',
                   onPressed: () async {
                     try {
                       await state.client.rejectFriendRequest(request.id);
@@ -434,11 +443,7 @@ class _FriendsViewState extends State<FriendsView> {
                         showAppToast(context, failure.toString());
                     }
                   },
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(66, 32),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                  child: const Text('Ignore'),
+                  icon: const Icon(Icons.close_rounded, size: 19),
                 ),
               ],
             ),

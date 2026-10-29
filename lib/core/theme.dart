@@ -282,6 +282,8 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
           TextStyle(fontFamily: 'Manrope', color: colors.muted, fontSize: 11),
       errorStyle:
           TextStyle(fontFamily: 'Manrope', color: colors.danger, fontSize: 12),
+      helperMaxLines: 3,
+      errorMaxLines: 3,
       contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
@@ -335,6 +337,7 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
       ),
     ),
     dialogTheme: DialogThemeData(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       backgroundColor: colors.panel,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
