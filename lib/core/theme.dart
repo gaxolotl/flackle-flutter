@@ -69,7 +69,7 @@ class FlackleColors extends ThemeExtension<FlackleColors> {
         lineStrong: Colors.white.withValues(alpha: 0.12),
         text: Colors.white,
         textDim: const Color(0xFFB7B7C1),
-        muted: const Color(0xFF7B7B87),
+        muted: const Color(0xFF9696A3),
         accent: accent,
         accentDim: accent.withValues(alpha: 0.12),
         green: const Color(0xFF34D399),
@@ -95,7 +95,7 @@ class FlackleColors extends ThemeExtension<FlackleColors> {
         lineStrong: const Color(0x25121318),
         text: const Color(0xFF15161B),
         textDim: const Color(0xFF4D5260),
-        muted: const Color(0xFF767B89),
+        muted: const Color(0xFF676D7B),
         accent: Color.lerp(accent, const Color(0xFFD94040), 0.25)!,
         accentDim: accent.withValues(alpha: 0.1),
         green: const Color(0xFF179B74),
@@ -254,14 +254,34 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
       iconTheme: IconThemeData(color: colors.textDim, size: 20),
     ),
     iconTheme: IconThemeData(color: colors.textDim, size: 20),
+    navigationBarTheme: NavigationBarThemeData(
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
+            fontFamily: 'Manrope',
+            fontSize: 11,
+            fontWeight: states.contains(WidgetState.selected)
+                ? FontWeight.w700
+                : FontWeight.w500,
+            color: states.contains(WidgetState.selected)
+                ? colors.accent
+                : colors.textDim,
+          )),
+    ),
     dividerTheme: DividerThemeData(color: colors.line, thickness: 1, space: 1),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: colors.input,
-      hintStyle: TextStyle(color: colors.muted, fontSize: 14),
-      labelStyle: TextStyle(color: colors.muted, fontSize: 13),
-      helperStyle: TextStyle(color: colors.muted, fontSize: 11),
-      errorStyle: TextStyle(color: colors.danger, fontSize: 12),
+      hintStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.muted, fontSize: 14),
+      labelStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.textDim, fontSize: 13),
+      floatingLabelStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.accent, fontSize: 13),
+      helperStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.muted, fontSize: 11),
+      errorStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.danger, fontSize: 12),
       contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
@@ -279,11 +299,16 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(color: colors.danger),
       ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: colors.danger, width: 1.5),
+      ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: colors.accent,
         foregroundColor: Colors.white,
+        minimumSize: const Size(44, 44),
         textStyle: const TextStyle(
             fontFamily: 'Manrope', fontWeight: FontWeight.w600, fontSize: 13),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -293,6 +318,7 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: colors.text,
+        minimumSize: const Size(44, 44),
         side: BorderSide(color: colors.lineStrong),
         textStyle: const TextStyle(
             fontFamily: 'Manrope', fontWeight: FontWeight.w600, fontSize: 13),
@@ -335,7 +361,8 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: colors.panel2,
-      contentTextStyle: TextStyle(color: colors.text, fontSize: 13),
+      contentTextStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.text, fontSize: 13),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ),
@@ -354,13 +381,15 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
     listTileTheme: ListTileThemeData(
       iconColor: colors.textDim,
       textColor: colors.text,
-      subtitleTextStyle: TextStyle(color: colors.muted, fontSize: 12),
+      subtitleTextStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.muted, fontSize: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: colors.panel2,
       surfaceTintColor: Colors.transparent,
-      textStyle: TextStyle(color: colors.text, fontSize: 13),
+      textStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.text, fontSize: 13),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: colors.lineStrong),
@@ -372,7 +401,8 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
         borderRadius: BorderRadius.circular(7),
         border: Border.all(color: colors.lineStrong),
       ),
-      textStyle: TextStyle(color: colors.text, fontSize: 11),
+      textStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.text, fontSize: 11),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: colors.accent,
@@ -384,9 +414,13 @@ ThemeData buildFlackleTheme(Brightness brightness, Color accent) {
       selectedColor: colors.accentDim,
       checkmarkColor: colors.accent,
       side: BorderSide(color: colors.line),
-      labelStyle: TextStyle(color: colors.textDim, fontSize: 11),
+      labelStyle:
+          TextStyle(fontFamily: 'Manrope', color: colors.textDim, fontSize: 11),
       secondaryLabelStyle: TextStyle(
-          color: colors.accent, fontSize: 11, fontWeight: FontWeight.w600),
+          fontFamily: 'Manrope',
+          color: colors.accent,
+          fontSize: 11,
+          fontWeight: FontWeight.w600),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     ),
     segmentedButtonTheme: SegmentedButtonThemeData(

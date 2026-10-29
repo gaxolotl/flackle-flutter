@@ -72,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : Column(
               children: [
                 SizedBox(
-                  height: 50,
+                  height: 60,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     padding:
@@ -112,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? c.active : Colors.transparent,
+            color: selected ? c.accentDim : Colors.transparent,
             borderRadius: BorderRadius.circular(9),
           ),
           child: Row(
@@ -1349,7 +1349,7 @@ class _AboutTab extends StatelessWidget {
               children: [
                 Text('Flackle Mobile',
                     style: context.display(20, weight: FontWeight.w600)),
-                Text('Version 1.0.1 · Flutter',
+                Text('Version 1.0.2 · Flutter',
                     style: context.label(11.5, color: c.muted)),
               ],
             ),

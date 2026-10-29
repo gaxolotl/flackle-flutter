@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag to attach the IPA to
         required: true
-        default: v1.0.0
+        default: v1.0.2
 
 permissions:
   contents: write
@@ -14,8 +14,18 @@ permissions:
 jobs:
   ipa:
     runs-on: macos-15
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Read and verify app version
+        run: |
+          version="$(sed -n 's/^version: \([^+]*\).*/\1/p' pubspec.yaml)"
+          test "$RELEASE_TAG" = "v$version"
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
 
       - uses: subosito/flutter-action@v2
         with:
@@ -40,18 +50,18 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/ios/iphoneos/Runner.app Payload/
-          zip -qry Flackle-1.0.0-unsigned.ipa Payload
+          zip -qry "Flackle-${APP_VERSION}-unsigned.ipa" Payload
 
       - name: Create release if needed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "${{ inputs.tag }}" >/dev/null 2>&1 || \
-            gh release create "${{ inputs.tag }}" \
-              --title "Flackle Mobile ${{ inputs.tag }}" \
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --verify-tag \
+              --title "Flackle Mobile ${APP_VERSION}" \
               --notes "Unsigned iOS IPA and Android APK."
 
       - name: Upload IPA
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.tag }}" Flackle-1.0.0-unsigned.ipa --clobber
+        run: gh release upload "$RELEASE_TAG" "Flackle-${APP_VERSION}-unsigned.ipa" --clobber

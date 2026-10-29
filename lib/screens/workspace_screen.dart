@@ -1667,7 +1667,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _mobileIndex,
-        height: 60,
+        height: 72,
         backgroundColor: context.c.bgSoft,
         indicatorColor: context.c.accentDim,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,

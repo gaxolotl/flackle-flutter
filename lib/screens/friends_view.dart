@@ -24,6 +24,7 @@ class _FriendsViewState extends State<FriendsView> {
   String _query = '';
   bool _loading = false;
   String? _error;
+  final _searchController = TextEditingController();
   final _addController = TextEditingController();
   bool _sendingRequest = false;
 
@@ -35,11 +36,13 @@ class _FriendsViewState extends State<FriendsView> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     _addController.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
+    if (_loading) return;
     final state = FlackleScope.read(context);
     setState(() {
       _loading = true;
@@ -94,6 +97,7 @@ class _FriendsViewState extends State<FriendsView> {
   }
 
   Future<void> _sendRequest() async {
+    if (_sendingRequest) return;
     final username = _addController.text.trim();
     if (username.isEmpty) return;
     final state = FlackleScope.read(context);
@@ -125,67 +129,125 @@ class _FriendsViewState extends State<FriendsView> {
   Widget build(BuildContext context) {
     final state = FlackleScope.of(context);
     final c = context.c;
+    final hasCachedData = state.friends.isNotEmpty ||
+        state.blocked.isNotEmpty ||
+        state.friendRequests.incoming.isNotEmpty ||
+        state.friendRequests.outgoing.isNotEmpty;
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 10, 10, 8),
-          decoration:
-              BoxDecoration(border: Border(bottom: BorderSide(color: c.line))),
+          padding: const EdgeInsets.fromLTRB(18, 16, 10, 16),
+          decoration: BoxDecoration(
+            color: c.panel,
+            border: Border(bottom: BorderSide(color: c.line)),
+          ),
           child: Row(
             children: [
-              AppIcon('users', size: 18, color: c.textDim),
-              const SizedBox(width: 9),
-              Text('Friends',
-                  style: context.display(16, weight: FontWeight.w600)),
-              const SizedBox(width: 8),
-              if (state.friends.isNotEmpty)
-                Tag('${state.friends.length}', small: true),
-              const Spacer(),
+              Container(
+                padding: const EdgeInsets.all(11),
+                decoration: BoxDecoration(
+                  color: c.accentDim,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: AppIcon('users', size: 21, color: c.accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Friends',
+                        style: context.display(20, weight: FontWeight.w700)),
+                    const SizedBox(height: 3),
+                    Text('A little closer to your people.',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.label(12, color: c.textDim)),
+                  ],
+                ),
+              ),
               IconButton(
                 onPressed: _newGroup,
                 tooltip: 'New group',
                 icon: const Icon(Icons.group_add_outlined, size: 18),
               ),
               IconButton(
-                onPressed: _load,
+                onPressed: _loading ? null : _load,
                 tooltip: 'Refresh friends',
-                icon: const Icon(Icons.refresh_rounded, size: 18),
+                icon: _loading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded, size: 18),
               ),
             ],
           ),
         ),
         if (_tab != _FriendsTab.add)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: TextField(
+              controller: _searchController,
               onChanged: (value) => setState(() => _query = value),
-              style: const TextStyle(fontSize: 12.5),
-              decoration: const InputDecoration(
+              style: const TextStyle(fontSize: 14),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
                 hintText: 'Search friends',
-                prefixIcon: Icon(Icons.search_rounded, size: 17),
+                prefixIcon: const Icon(Icons.search_rounded, size: 17),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: _clearSearch,
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                      ),
                 isDense: true,
               ),
             ),
           ),
         SizedBox(
-          height: 42,
+          height: 52,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
               _tabChip(_FriendsTab.all, 'All', state.friends.length),
-              _tabChip(_FriendsTab.online, 'Online', null),
-              _tabChip(_FriendsTab.pending, 'Pending',
-                  state.friendRequests.incoming.length),
+              _tabChip(_FriendsTab.online, 'Online',
+                  state.friends.where((user) => _isOnline(state, user)).length),
+              _tabChip(
+                  _FriendsTab.pending,
+                  'Pending',
+                  state.friendRequests.incoming.length +
+                      state.friendRequests.outgoing.length),
               _tabChip(_FriendsTab.blocked, 'Blocked', state.blocked.length),
               _tabChip(_FriendsTab.add, 'Add friend', null),
             ],
           ),
         ),
+        if (_error != null && (hasCachedData || _tab == _FriendsTab.add))
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.cloud_off_outlined, size: 18, color: c.danger),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                      'Could not refresh friends. Try again in a moment.',
+                      style: context.label(12, color: c.textDim)),
+                ),
+                TextButton(
+                    onPressed: _loading ? null : _load,
+                    child: const Text('Retry')),
+              ],
+            ),
+          ),
         Expanded(
-          child: _loading && state.friends.isEmpty
+          child: _loading && !hasCachedData && _tab != _FriendsTab.add
               ? const LoadingPane()
-              : _error != null && state.friends.isEmpty
+              : _error != null && !hasCachedData && _tab != _FriendsTab.add
                   ? ErrorPane(message: _error!, onRetry: _load)
                   : _body(context, state),
         ),
@@ -193,12 +255,42 @@ class _FriendsViewState extends State<FriendsView> {
     );
   }
 
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _query = '');
+  }
+
+  bool _isOnline(AppState state, User user) {
+    final presence = state.presences[user.id] ?? user.status ?? 'offline';
+    return presence != 'offline' && presence != 'invisible';
+  }
+
+  bool _matches(User? user) {
+    final query = _query.trim().toLowerCase();
+    return query.isEmpty ||
+        (user != null &&
+            (user.name.toLowerCase().contains(query) ||
+                user.username.toLowerCase().contains(query)));
+  }
+
+  Widget _noMatches() => EmptyPane(
+        icon: Icons.search_off_rounded,
+        title: 'No matches found',
+        detail: 'Try another name or username.',
+        action: OutlinedButton(
+          onPressed: _clearSearch,
+          child: const Text('Clear search'),
+        ),
+      );
+
   Widget _tabChip(_FriendsTab tab, String label, int? count) => Padding(
         padding: const EdgeInsets.only(right: 6, top: 4),
         child: ChoiceChip(
           selected: _tab == tab,
           showCheckmark: false,
-          visualDensity: VisualDensity.compact,
+          labelStyle: context.label(12,
+              color: _tab == tab ? context.c.accent : context.c.textDim,
+              weight: _tab == tab ? FontWeight.w700 : FontWeight.w500),
           label: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -225,19 +317,11 @@ class _FriendsViewState extends State<FriendsView> {
       case _FriendsTab.all:
       case _FriendsTab.online:
         final friends = state.friends.where((user) {
-          if (_query.isNotEmpty &&
-              !user.name.toLowerCase().contains(_query.toLowerCase()) &&
-              !user.username.toLowerCase().contains(_query.toLowerCase())) {
-            return false;
-          }
-          if (_tab == _FriendsTab.online) {
-            final presence =
-                state.presences[user.id] ?? user.status ?? 'offline';
-            return presence != 'offline' && presence != 'invisible';
-          }
-          return true;
+          return _matches(user) &&
+              (_tab != _FriendsTab.online || _isOnline(state, user));
         }).toList();
         if (friends.isEmpty) {
+          if (_query.trim().isNotEmpty) return _noMatches();
           return EmptyPane(
             icon: Icons.people_outline_rounded,
             title:
@@ -245,6 +329,13 @@ class _FriendsViewState extends State<FriendsView> {
             detail: _tab == _FriendsTab.online
                 ? 'When friends come online they appear here.'
                 : 'Use Add friend to connect with someone by username.',
+            action: _tab == _FriendsTab.all
+                ? FilledButton.icon(
+                    onPressed: () => setState(() => _tab = _FriendsTab.add),
+                    icon: const Icon(Icons.person_add_outlined, size: 18),
+                    label: const Text('Add a friend'),
+                  )
+                : null,
           );
         }
         return ListView.separated(
@@ -269,9 +360,15 @@ class _FriendsViewState extends State<FriendsView> {
                   ),
                 ],
               ),
-              title: Text(user.name, style: const TextStyle(fontSize: 13)),
+              title: Text(user.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600)),
               subtitle: Text('${user.handle} · $presence',
-                  style: TextStyle(fontSize: 10.5, color: context.c.muted)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: context.c.muted)),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -296,9 +393,14 @@ class _FriendsViewState extends State<FriendsView> {
 
   Widget _pending(BuildContext context, AppState state) {
     final c = context.c;
-    final incoming = state.friendRequests.incoming;
-    final outgoing = state.friendRequests.outgoing;
+    final incoming = state.friendRequests.incoming
+        .where((request) => _matches(request.sender))
+        .toList();
+    final outgoing = state.friendRequests.outgoing
+        .where((request) => _matches(request.receiver))
+        .toList();
     if (incoming.isEmpty && outgoing.isEmpty) {
+      if (_query.trim().isNotEmpty) return _noMatches();
       return const EmptyPane(
         icon: Icons.inbox_outlined,
         title: 'No pending requests',
@@ -392,7 +494,9 @@ class _FriendsViewState extends State<FriendsView> {
 
   Widget _blocked(BuildContext context, AppState state) {
     final c = context.c;
-    if (state.blocked.isEmpty) {
+    final blocked = state.blocked.where(_matches).toList();
+    if (blocked.isEmpty) {
+      if (_query.trim().isNotEmpty) return _noMatches();
       return const EmptyPane(
         icon: Icons.block_outlined,
         title: 'No blocked users',
@@ -401,10 +505,10 @@ class _FriendsViewState extends State<FriendsView> {
     }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(10, 4, 10, 20),
-      itemCount: state.blocked.length,
+      itemCount: blocked.length,
       separatorBuilder: (_, __) => Divider(color: c.line, height: 1),
       itemBuilder: (context, index) {
-        final user = state.blocked[index];
+        final user = blocked[index];
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 6),
           leading: AppAvatar(url: user.avatarUrl, name: user.name, size: 38),
@@ -431,34 +535,52 @@ class _FriendsViewState extends State<FriendsView> {
           style: context.label(12.5, color: c.muted, height: 1.5),
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _addController,
-                autocorrect: false,
-                onSubmitted: (_) => _sendRequest(),
-                decoration: const InputDecoration(
-                  hintText: 'username',
-                  prefixIcon: Icon(Icons.alternate_email_rounded, size: 17),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final field = TextField(
+              controller: _addController,
+              autocorrect: false,
+              enabled: !_sendingRequest,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _sendRequest(),
+              decoration: const InputDecoration(
+                labelText: 'Username',
+                hintText: 'username',
+                prefixIcon: Icon(Icons.alternate_email_rounded, size: 17),
+              ),
+            );
+            final button = ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _addController,
+              builder: (context, value, _) => SizedBox(
+                height: 48,
+                child: FilledButton(
+                  onPressed: _sendingRequest || value.text.trim().isEmpty
+                      ? null
+                      : _sendRequest,
+                  child: _sendingRequest
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('Send request'),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 44,
-              child: FilledButton(
-                onPressed: _sendingRequest ? null : _sendRequest,
-                child: _sendingRequest
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Text('Send request'),
-              ),
-            ),
-          ],
+            );
+            if (constraints.maxWidth < 460) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [field, const SizedBox(height: 12), button],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: field),
+                const SizedBox(width: 12),
+                button
+              ],
+            );
+          },
         ),
         const SizedBox(height: 22),
         Container(

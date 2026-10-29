@@ -2531,25 +2531,41 @@ class _ChatViewState extends State<ChatView> {
                   child: SizedBox(
                     width: 40,
                     height: 40,
-                    child: FilledButton(
-                      onPressed: (!canSend || _sending) ? null : _send,
-                      style: FilledButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(13),
+                    child: Tooltip(
+                      message:
+                          _editing == null ? 'Send message' : 'Save changes',
+                      child: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _composer,
+                        builder: (context, value, _) => FilledButton(
+                          onPressed: (!canSend ||
+                                  _sending ||
+                                  _uploading ||
+                                  (value.text.trim().isEmpty &&
+                                      _attachments.isEmpty))
+                              ? null
+                              : _send,
+                          style: FilledButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                          ),
+                          child: _sending
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Icon(
+                                  _editing == null
+                                      ? Icons.arrow_upward_rounded
+                                      : Icons.check_rounded,
+                                  size: 19),
                         ),
                       ),
-                      child: _sending
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.arrow_upward_rounded,
-                              size: 19, color: Colors.white),
                     ),
                   ),
                 ),

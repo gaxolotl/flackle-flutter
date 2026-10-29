@@ -267,34 +267,59 @@ class EmptyPane extends StatelessWidget {
   final Widget? action;
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 36, color: context.c.muted),
-              const SizedBox(height: 12),
-              Text(title,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: 'Satoshi',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    color: context.c.text,
-                  )),
-              if (detail != null) ...[
-                const SizedBox(height: 6),
-                Text(detail!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: context.c.muted, fontSize: 13, height: 1.5)),
-              ],
-              if (action != null) ...[
-                const SizedBox(height: 16),
-                action!,
-              ],
-            ],
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.hasBoundedHeight
+                  ? (constraints.maxHeight - 48).clamp(0.0, double.infinity)
+                  : 0,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 380),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: context.c.accentDim,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: context.c.accent.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Icon(icon, size: 30, color: context.c.accent),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(title,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontFamily: 'Satoshi',
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          color: context.c.text,
+                        )),
+                    if (detail != null) ...[
+                      const SizedBox(height: 6),
+                      Text(detail!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: context.c.textDim,
+                              fontSize: 13,
+                              height: 1.6)),
+                    ],
+                    if (action != null) ...[
+                      const SizedBox(height: 16),
+                      action!,
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       );
@@ -307,34 +332,14 @@ class ErrorPane extends StatelessWidget {
   final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(26),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_off_outlined, size: 34, color: context.c.danger),
-              const SizedBox(height: 12),
-              Text('Could not reach Flackle',
-                  style: TextStyle(
-                    fontFamily: 'Satoshi',
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    color: context.c.text,
-                  )),
-              const SizedBox(height: 6),
-              Text(message,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: context.c.muted, fontSize: 12, height: 1.5)),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded, size: 17),
-                label: const Text('Try again'),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) => EmptyPane(
+        icon: Icons.cloud_off_outlined,
+        title: 'Could not reach Flackle',
+        detail: message,
+        action: OutlinedButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh_rounded, size: 17),
+          label: const Text('Try again'),
         ),
       );
 }
