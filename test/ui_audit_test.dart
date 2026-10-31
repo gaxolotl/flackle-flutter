@@ -66,6 +66,7 @@ class _AuditClient extends FlackleClient {
   bool failRoles = false;
   bool failProfile = false;
   Completer<LoginResult>? loginRequest;
+  UserCard? userCard;
   List<Map<String, dynamic>> savedRailFolders = const [];
   List<Map<String, dynamic>> savedRailServers = const [];
 
@@ -108,7 +109,7 @@ class _AuditClient extends FlackleClient {
 
   @override
   Future<UserCard> fetchUserCard(String username, {String? serverId}) async =>
-      const UserCard(user: _person);
+      userCard ?? const UserCard(user: _person);
 
   @override
   Future<AnalyticsBundle> fetchAnalytics(
@@ -808,5 +809,35 @@ void main() {
     await tester.tap(message);
     await tester.pumpAndSettle();
     expect(find.byType(ChatPage), findsOneWidget);
+  });
+
+  testWidgets('profile shows Beyond beside badges and resolves mutuals',
+      (tester) async {
+    client.userCard = const UserCard(
+      user: _person,
+      membership: 'beyond',
+      badges: [
+        ProfileBadge(
+          key: 'early-supporter',
+          name: 'Early Supporter',
+          description: 'Supported Flackle early',
+        ),
+      ],
+      mutualFriendIds: ['sam'],
+      mutualServerIds: ['server'],
+    );
+    await pumpPage(tester, const SizedBox());
+    unawaited(showProfile(pageContext, user: _person));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Flackle Beyond'), findsOneWidget);
+    expect(find.text('Early Supporter'), findsOneWidget);
+    expect(find.text('1 MUTUAL FRIEND'), findsOneWidget);
+    expect(find.text('Sam Rivers'), findsOneWidget);
+    expect(find.text('1 MUTUAL SERVER'), findsOneWidget);
+    expect(
+        find.text('A community with a very long server name'), findsOneWidget);
+    expect(find.text('BEYOND MEMBER'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -62,6 +62,8 @@ class _ProfileSheetState extends State<ProfileSheet> {
           badges: previous.badges,
           blocks: card.blocks,
           socials: card.socials,
+          mutualFriendIds: card.mutualFriendIds,
+          mutualServerIds: card.mutualServerIds,
         );
       }
       if (mounted) setState(() => _card = card);
@@ -303,6 +305,15 @@ class _ProfileSheetState extends State<ProfileSheet> {
       }
     }
     final blocks = card?.blocks ?? const <ProfileBlock>[];
+    final mutualFriendIds = card?.mutualFriendIds.toSet() ?? const <String>{};
+    final mutualServerIds = card?.mutualServerIds.toSet() ?? const <String>{};
+    final mutualFriends = state.friends
+        .where((friend) => mutualFriendIds.contains(friend.id))
+        .toList();
+    final mutualServers = state.servers
+        .where((server) => mutualServerIds.contains(server.id))
+        .toList();
+    final isBeyond = card?.membership == 'beyond';
     final isMe = state.me?.id == user.id;
     final isFriend = state.friends.any((entry) => entry.id == user.id);
     final outgoing = state.friendRequests.outgoing
@@ -425,46 +436,23 @@ class _ProfileSheetState extends State<ProfileSheet> {
                     ],
                   ],
                 ),
-                if (card?.badges.isNotEmpty == true) ...[
+                if (isBeyond || card?.badges.isNotEmpty == true) ...[
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
+                      if (isBeyond)
+                        _profileBadge(
+                          name: 'Flackle Beyond',
+                          description: 'Beyond member',
+                          iconUrl: 'https://flackle.com/badges/beyond-96.png',
+                        ),
                       for (final badge in card!.badges)
-                        Tooltip(
-                          message: badge.description?.isNotEmpty == true
-                              ? badge.description!
-                              : badge.name,
-                          child: Container(
-                            padding: const EdgeInsets.fromLTRB(7, 4, 9, 4),
-                            decoration: BoxDecoration(
-                              color: c.panel2,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: c.line),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                AppImage(
-                                  badge.resolvedIconUrl,
-                                  width: 18,
-                                  height: 18,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, __, ___) => Icon(
-                                    Icons.workspace_premium_rounded,
-                                    size: 17,
-                                    color: c.accent,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(badge.name,
-                                    style: context.label(11,
-                                        weight: FontWeight.w600,
-                                        color: c.textDim)),
-                              ],
-                            ),
-                          ),
+                        _profileBadge(
+                          name: badge.name,
+                          description: badge.description,
+                          iconUrl: badge.resolvedIconUrl,
                         ),
                     ],
                   ),
@@ -476,6 +464,25 @@ class _ProfileSheetState extends State<ProfileSheet> {
                     runSpacing: 6,
                     children: [for (final role in roles) RolePill(role)],
                   ),
+                ],
+                if (mutualFriends.isNotEmpty || mutualServers.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  if (mutualFriends.isNotEmpty)
+                    _mutualSection(
+                      title: mutualFriends.length == 1
+                          ? '1 mutual friend'
+                          : '${mutualFriends.length} mutual friends',
+                      people: mutualFriends,
+                    ),
+                  if (mutualFriends.isNotEmpty && mutualServers.isNotEmpty)
+                    const SizedBox(height: 12),
+                  if (mutualServers.isNotEmpty)
+                    _mutualSection(
+                      title: mutualServers.length == 1
+                          ? '1 mutual server'
+                          : '${mutualServers.length} mutual servers',
+                      servers: mutualServers,
+                    ),
                 ],
                 const SizedBox(height: 16),
                 Column(
@@ -528,12 +535,6 @@ class _ProfileSheetState extends State<ProfileSheet> {
                     _detailRow('Server nickname', member.nickname!),
                 ],
                 for (final block in blocks) _block(context, block),
-                if (card?.membership != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 14),
-                    child: Tag('${card!.membership!.toUpperCase()} MEMBER',
-                        color: c.accent),
-                  ),
                 if (_loading)
                   Padding(
                     padding: const EdgeInsets.only(top: 16),
@@ -566,6 +567,111 @@ class _ProfileSheetState extends State<ProfileSheet> {
           ],
         ),
       );
+
+  Widget _profileBadge({
+    required String name,
+    required String iconUrl,
+    String? description,
+  }) {
+    final c = context.c;
+    return Tooltip(
+      message: description?.isNotEmpty == true ? description! : name,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(7, 4, 9, 4),
+        decoration: BoxDecoration(
+          color: c.panel2,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: c.line),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppImage(
+              iconUrl,
+              width: 18,
+              height: 18,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => Icon(
+                Icons.workspace_premium_rounded,
+                size: 17,
+                color: c.accent,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(name,
+                style: context.label(11,
+                    weight: FontWeight.w600, color: c.textDim)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _mutualSection({
+    required String title,
+    List<User> people = const [],
+    List<Server> servers = const [],
+  }) {
+    final c = context.c;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title.toUpperCase(),
+            style: context.label(9.5,
+                color: c.muted, weight: FontWeight.w700, letterSpacing: 0.7)),
+        const SizedBox(height: 7),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final user in people)
+              _mutualChip(
+                name: user.name,
+                avatar:
+                    AppAvatar(url: user.avatarUrl, name: user.name, size: 22),
+              ),
+            for (final server in servers)
+              _mutualChip(
+                name: server.name,
+                avatar: AppAvatar(
+                  url: server.iconUrl,
+                  name: server.name,
+                  size: 22,
+                  square: true,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _mutualChip({required String name, required Widget avatar}) {
+    final c = context.c;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 190),
+      padding: const EdgeInsets.fromLTRB(5, 4, 9, 4),
+      decoration: BoxDecoration(
+        color: c.panel2,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: c.line),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          avatar,
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.label(11.5,
+                    color: c.textDim, weight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _block(BuildContext context, ProfileBlock block) {
     final c = context.c;

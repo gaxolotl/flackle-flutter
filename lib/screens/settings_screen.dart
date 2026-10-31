@@ -1315,7 +1315,7 @@ class _AboutTab extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: context.display(20, weight: FontWeight.w600)),
-                Text('Version 1.0.4 · Flutter',
+                Text('Version 1.0.6 · Flutter',
                     style: context.label(11.5, color: c.muted)),
               ],
             )),

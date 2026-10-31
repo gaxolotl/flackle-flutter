@@ -1339,6 +1339,8 @@ class UserCard {
     this.badges = const [],
     this.blocks = const [],
     this.socials = const [],
+    this.mutualFriendIds = const [],
+    this.mutualServerIds = const [],
   });
 
   final User user;
@@ -1347,6 +1349,8 @@ class UserCard {
   final List<ProfileBadge> badges;
   final List<ProfileBlock> blocks;
   final List<ProfileBlock> socials;
+  final List<String> mutualFriendIds;
+  final List<String> mutualServerIds;
 
   factory UserCard.fromJson(Map<String, dynamic> json) => UserCard(
         user: User.fromJson(asMap(json['user'])),
@@ -1366,6 +1370,10 @@ class UserCard {
             .whereType<Map>()
             .map((value) => ProfileBlock.fromJson(asMap(value)))
             .toList(),
+        mutualFriendIds:
+            asList(json['mutual_friend_ids']).map((value) => '$value').toList(),
+        mutualServerIds:
+            asList(json['mutual_server_ids']).map((value) => '$value').toList(),
       );
 }
 
