@@ -206,6 +206,63 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<ServerFolder> createServerFolder(String name, {String? color}) async {
+    final folder = await client.createServerFolder(name, color: color);
+    serverFolders = [...serverFolders, folder];
+    notifyListeners();
+    return folder;
+  }
+
+  Future<ServerFolder> renameServerFolder(String folderId, String name) async {
+    final folder = await client.updateServerFolder(folderId, name: name);
+    serverFolders = serverFolders
+        .map((entry) => entry.id == folderId ? folder : entry)
+        .toList();
+    notifyListeners();
+    return folder;
+  }
+
+  Future<void> deleteServerFolder(String folderId) async {
+    await client.deleteServerFolder(folderId);
+    serverFolders =
+        serverFolders.where((entry) => entry.id != folderId).toList();
+    for (final entry in serverSettings.entries.toList()) {
+      if (entry.value.folderId == folderId) {
+        serverSettings[entry.key] = entry.value.copyWith(clearFolder: true);
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> saveServerRailLayout({
+    required List<ServerFolder> folders,
+    required Map<String, ServerUserSettings> settings,
+  }) async {
+    await client.updateServerRailLayout(
+      folders: folders
+          .map((folder) => {
+                'id': folder.id,
+                'position': folder.effectivePosition,
+              })
+          .toList(),
+      servers: settings.values
+          .map((entry) => {
+                'server_id': entry.serverId,
+                'position': entry.position ?? 0,
+                if (entry.folderId != null)
+                  'folder_id': entry.folderId
+                else
+                  'clear_folder': true,
+              })
+          .toList(),
+    );
+    serverFolders = folders;
+    serverSettings
+      ..clear()
+      ..addAll(settings);
+    notifyListeners();
+  }
+
   Future<void> refreshMe() async {
     try {
       final user = await client.fetchMe();

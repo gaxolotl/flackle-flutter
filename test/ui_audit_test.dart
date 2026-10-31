@@ -66,6 +66,8 @@ class _AuditClient extends FlackleClient {
   bool failRoles = false;
   bool failProfile = false;
   Completer<LoginResult>? loginRequest;
+  List<Map<String, dynamic>> savedRailFolders = const [];
+  List<Map<String, dynamic>> savedRailServers = const [];
 
   @override
   Future<Category> createCategory(String serverId, String name) async {
@@ -113,6 +115,27 @@ class _AuditClient extends FlackleClient {
           String serverId, String channelId) async =>
       const AnalyticsBundle(
           memberCount: 123456789, presenceCount: 12345, voiceCount: 32);
+
+  @override
+  Future<ServerFolder> createServerFolder(String name, {String? color}) async =>
+      ServerFolder(id: 'folder', name: name, color: color);
+
+  @override
+  Future<ServerFolder> updateServerFolder(String folderId,
+          {String? name, String? color}) async =>
+      ServerFolder(id: folderId, name: name ?? 'Folder', color: color);
+
+  @override
+  Future<void> deleteServerFolder(String folderId) async {}
+
+  @override
+  Future<void> updateServerRailLayout({
+    required List<Map<String, dynamic>> folders,
+    required List<Map<String, dynamic>> servers,
+  }) async {
+    savedRailFolders = folders;
+    savedRailServers = servers;
+  }
 }
 
 class _AuditState extends AppState {
@@ -523,6 +546,37 @@ void main() {
     expect(
         tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
         1);
+  });
+
+  testWidgets('server organizer creates folders and persists membership',
+      (tester) async {
+    await pumpPage(tester, WorkspaceScreen(state: state),
+        size: const Size(1200, 800), scale: 1);
+    await tester.tap(find.byTooltip('Organize servers'));
+    await tester.pumpAndSettle();
+    expect(find.text('Organize servers'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Create folder'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Folder name'), 'Work');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('Work'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Move server'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<String>, 'Work'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+    await tester.pumpAndSettle();
+
+    expect(state.serverSettings['server']?.folderId, 'folder');
+    expect(client.savedRailFolders.single, containsPair('id', 'folder'));
+    expect(client.savedRailFolders.single, containsPair('position', 0));
+    expect(client.savedRailServers.single, containsPair('server_id', 'server'));
+    expect(client.savedRailServers.single, containsPair('position', 0));
+    expect(client.savedRailServers.single, containsPair('folder_id', 'folder'));
   });
 
   testWidgets('new group without friends opens the Friends tab on mobile',

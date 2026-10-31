@@ -1695,6 +1695,7 @@ class ServerUserSettings {
   ServerUserSettings copyWith({
     int? position,
     String? folderId,
+    bool clearFolder = false,
     String? notificationLevel,
     String? lastViewedChannelId,
     List<String>? collapsedCategories,
@@ -1702,7 +1703,7 @@ class ServerUserSettings {
       ServerUserSettings(
         serverId: serverId,
         position: position ?? this.position,
-        folderId: folderId ?? this.folderId,
+        folderId: clearFolder ? null : folderId ?? this.folderId,
         notificationLevel: notificationLevel ?? this.notificationLevel,
         lastViewedChannelId: lastViewedChannelId ?? this.lastViewedChannelId,
         collapsedCategories: collapsedCategories ?? this.collapsedCategories,
@@ -1715,18 +1716,38 @@ class ServerFolder {
     required this.name,
     this.color,
     this.position = 0,
+    this.railPosition,
   });
 
   final String id;
   final String name;
   final String? color;
   final int position;
+  final int? railPosition;
+
+  int get effectivePosition => railPosition ?? position;
 
   factory ServerFolder.fromJson(Map<String, dynamic> json) => ServerFolder(
         id: asString(json['id']),
         name: asString(json['name'], 'Folder'),
         color: asColor(json['color']),
         position: asIntOrNull(json['position']) ?? 0,
+        railPosition: asIntOrNull(json['rail_position']),
+      );
+
+  ServerFolder copyWith({
+    String? name,
+    String? color,
+    int? position,
+    int? railPosition,
+    bool clearColor = false,
+  }) =>
+      ServerFolder(
+        id: id,
+        name: name ?? this.name,
+        color: clearColor ? null : color ?? this.color,
+        position: position ?? this.position,
+        railPosition: railPosition ?? this.railPosition,
       );
 }
 

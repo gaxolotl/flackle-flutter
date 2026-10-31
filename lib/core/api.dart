@@ -415,6 +415,51 @@ class FlackleClient {
     await _json('PUT', '/api/servers/@me/settings', body: {'servers': servers});
   }
 
+  Future<void> updateServerRailLayout({
+    required List<Map<String, dynamic>> folders,
+    required List<Map<String, dynamic>> servers,
+  }) async {
+    await _json('PUT', '/api/servers/@me/settings', body: {
+      'folders': folders,
+      'servers': servers,
+    });
+  }
+
+  Future<ServerFolder> createServerFolder(String name, {String? color}) async {
+    final data = asMap(await _json(
+      'POST',
+      '/api/servers/@me/folders',
+      body: {
+        'name': name,
+        if (color != null) 'color': color,
+      },
+    ));
+    return ServerFolder.fromJson(asMap(data['folder'] ?? data));
+  }
+
+  Future<ServerFolder> updateServerFolder(
+    String folderId, {
+    String? name,
+    String? color,
+  }) async {
+    final data = asMap(await _json(
+      'PATCH',
+      '/api/servers/@me/folders/${Uri.encodeComponent(folderId)}',
+      body: {
+        if (name != null) 'name': name,
+        if (color != null) 'color': color,
+      },
+    ));
+    return ServerFolder.fromJson(asMap(data['folder'] ?? data));
+  }
+
+  Future<void> deleteServerFolder(String folderId) async {
+    await _json(
+      'DELETE',
+      '/api/servers/@me/folders/${Uri.encodeComponent(folderId)}',
+    );
+  }
+
   Future<Server> updateServer(
           String serverId, Map<String, dynamic> patch) async =>
       Server.fromJson(

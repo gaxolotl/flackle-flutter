@@ -115,6 +115,34 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     ));
   }
 
+  Future<void> _organizeServers() async {
+    final state = FlackleScope.read(context);
+    final organizer = _ServerOrganizer(
+      state: state,
+      units: _railUnits(state),
+    );
+    if (isNarrow(context)) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: true,
+        builder: (_) =>
+            FractionallySizedBox(heightFactor: 0.92, child: organizer),
+      );
+    } else {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 720),
+            child: organizer,
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _openServerSettings() async {
     final serverId = _serverId ?? widget.state.active?.serverId;
     if (serverId == null) return;
@@ -276,6 +304,13 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                 const SizedBox(height: 4),
                 _railButton(
                   context,
+                  tooltip: 'Organize servers',
+                  active: false,
+                  onTap: _organizeServers,
+                  child: Icon(Icons.folder_outlined, size: 20, color: c.muted),
+                ),
+                _railButton(
+                  context,
                   tooltip: 'Add a server',
                   active: false,
                   onTap: () => openAddServer(context),
@@ -404,7 +439,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       }
     }
     final folders = [...state.serverFolders]..sort((a, b) {
-        final byPosition = a.position.compareTo(b.position);
+        final byPosition = a.effectivePosition.compareTo(b.effectivePosition);
         return byPosition != 0 ? byPosition : a.name.compareTo(b.name);
       });
     final units = <_RailUnit>[
@@ -412,7 +447,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         _RailUnit.folder(
           folder,
           grouped[folder.id] ?? const [],
-          folder.position,
+          folder.effectivePosition,
         ),
       for (final server in loose)
         _RailUnit.server(server, serverPosition(server)),
@@ -1628,6 +1663,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               _serverButton(context, state, unit.server!),
         ],
         onAdd: () => openAddServer(context),
+        onOrganize: _organizeServers,
         onSearch: _openSearch,
         onServerSettings: _openServerSettings,
         onMembers: (serverId) => _showMobileMembers(context, serverId),
@@ -1836,6 +1872,7 @@ class _MobileServers extends StatelessWidget {
     required this.serverId,
     required this.railItems,
     required this.onAdd,
+    required this.onOrganize,
     required this.onSearch,
     required this.onServerSettings,
     required this.onMembers,
@@ -1845,6 +1882,7 @@ class _MobileServers extends StatelessWidget {
   final String? serverId;
   final List<Widget> railItems;
   final VoidCallback onAdd;
+  final VoidCallback onOrganize;
   final VoidCallback onSearch;
   final VoidCallback onServerSettings;
   final void Function(String serverId) onMembers;
@@ -1917,6 +1955,31 @@ class _MobileServers extends StatelessWidget {
                         children: [
                           ...railItems,
                           const SizedBox(height: 4),
+                          Tooltip(
+                            message: 'Organize servers',
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: onOrganize,
+                              child: SizedBox(
+                                height: 48,
+                                child: Row(
+                                  children: [
+                                    const SizedBox(width: 11),
+                                    Container(
+                                      width: 42,
+                                      height: 42,
+                                      decoration: BoxDecoration(
+                                        color: c.panel3,
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Icon(Icons.folder_outlined,
+                                          size: 20, color: c.muted),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                           Tooltip(
                             message: 'Add a server',
                             child: InkWell(
@@ -2109,6 +2172,443 @@ class _MobileYou extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ServerOrganizer extends StatefulWidget {
+  const _ServerOrganizer({required this.state, required this.units});
+
+  final AppState state;
+  final List<_RailUnit> units;
+
+  @override
+  State<_ServerOrganizer> createState() => _ServerOrganizerState();
+}
+
+class _ServerOrganizerState extends State<_ServerOrganizer> {
+  late final List<_OrganizerGroup> _groups;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _groups = widget.units
+        .map((unit) => _OrganizerGroup(
+              folder: unit.folder,
+              servers: List<Server>.of(
+                  unit.folder == null ? [unit.server!] : unit.servers),
+            ))
+        .toList();
+  }
+
+  List<ServerFolder> get _folders =>
+      _groups.map((group) => group.folder).whereType<ServerFolder>().toList();
+
+  Future<String?> _askName(String title, {String initial = ''}) async {
+    final controller = TextEditingController(text: initial);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 40,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(labelText: 'Folder name'),
+          onSubmitted: (value) {
+            final name = value.trim();
+            if (name.isNotEmpty) Navigator.of(dialogContext).pop(name);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) Navigator.of(dialogContext).pop(name);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    return result;
+  }
+
+  Future<void> _createFolder() async {
+    final name = await _askName('Create folder');
+    if (name == null || !mounted) return;
+    setState(() => _error = null);
+    try {
+      final folder = await widget.state.createServerFolder(name);
+      if (!mounted) return;
+      setState(() => _groups.add(_OrganizerGroup(folder: folder, servers: [])));
+    } catch (failure) {
+      if (mounted) setState(() => _error = failure.toString());
+    }
+  }
+
+  Future<void> _renameFolder(_OrganizerGroup group) async {
+    final folder = group.folder!;
+    final name = await _askName('Rename folder', initial: folder.name);
+    if (name == null || name == folder.name || !mounted) return;
+    setState(() => _error = null);
+    try {
+      final updated = await widget.state.renameServerFolder(folder.id, name);
+      if (mounted) setState(() => group.folder = updated);
+    } catch (failure) {
+      if (mounted) setState(() => _error = failure.toString());
+    }
+  }
+
+  Future<void> _deleteFolder(_OrganizerGroup group) async {
+    final folder = group.folder!;
+    final confirmed = await confirmAction(
+      context,
+      title: 'Delete ${folder.name}?',
+      body: 'Servers in this folder will return to the main server list.',
+      confirmLabel: 'Delete folder',
+      danger: true,
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _error = null);
+    try {
+      await widget.state.deleteServerFolder(folder.id);
+      if (!mounted) return;
+      setState(() {
+        final index = _groups.indexOf(group);
+        _groups
+          ..remove(group)
+          ..insertAll(
+            index,
+            group.servers.map((server) => _OrganizerGroup(servers: [server])),
+          );
+      });
+    } catch (failure) {
+      if (mounted) setState(() => _error = failure.toString());
+    }
+  }
+
+  void _moveServer(Server server, String? folderId) {
+    final sourceIndex = _groups.indexWhere(
+        (group) => group.servers.any((entry) => entry.id == server.id));
+    if (sourceIndex == -1) return;
+    final source = _groups[sourceIndex];
+    if (source.folder?.id == folderId) return;
+    setState(() {
+      source.servers.removeWhere((entry) => entry.id == server.id);
+      if (source.folder == null) _groups.removeAt(sourceIndex);
+      if (folderId == null) {
+        final insertAt = source.folder == null
+            ? sourceIndex.clamp(0, _groups.length)
+            : (_groups.indexOf(source) + 1).clamp(0, _groups.length);
+        _groups.insert(insertAt, _OrganizerGroup(servers: [server]));
+      } else {
+        final target =
+            _groups.firstWhere((group) => group.folder?.id == folderId);
+        target.servers.add(server);
+      }
+    });
+  }
+
+  void _moveWithinFolder(_OrganizerGroup group, int from, int to) {
+    if (to < 0 || to >= group.servers.length) return;
+    setState(() {
+      final server = group.servers.removeAt(from);
+      group.servers.insert(to, server);
+    });
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    final folders = <ServerFolder>[];
+    final settings = <String, ServerUserSettings>{};
+    for (var rootIndex = 0; rootIndex < _groups.length; rootIndex++) {
+      final group = _groups[rootIndex];
+      final folder = group.folder;
+      if (folder != null) {
+        folders.add(folder.copyWith(
+          position: rootIndex,
+          railPosition: rootIndex,
+        ));
+        for (var index = 0; index < group.servers.length; index++) {
+          final server = group.servers[index];
+          final current = widget.state.serverSettings[server.id];
+          settings[server.id] = current == null
+              ? ServerUserSettings(
+                  serverId: server.id,
+                  position: index,
+                  folderId: folder.id,
+                )
+              : current.copyWith(position: index, folderId: folder.id);
+        }
+      } else {
+        final server = group.servers.single;
+        final current = widget.state.serverSettings[server.id];
+        settings[server.id] = current == null
+            ? ServerUserSettings(serverId: server.id, position: rootIndex)
+            : current.copyWith(position: rootIndex, clearFolder: true);
+      }
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.state
+          .saveServerRailLayout(folders: folders, settings: settings);
+      if (mounted) Navigator.of(context).pop();
+    } catch (failure) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = failure.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 10, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Organize servers',
+                        style: context.display(18, weight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text('Drag the main list, or move servers into folders.',
+                        style: context.label(11, color: c.muted)),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: _saving ? null : _createFolder,
+                tooltip: 'Create folder',
+                icon: const Icon(Icons.create_new_folder_outlined),
+              ),
+              IconButton(
+                onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                tooltip: 'Close',
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+        ),
+        Divider(height: 1, color: c.line),
+        Expanded(
+          child: _groups.isEmpty
+              ? const EmptyPane(
+                  icon: Icons.hub_outlined,
+                  title: 'No servers yet',
+                  detail: 'Join a server before organizing this list.',
+                )
+              : ReorderableListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+                  buildDefaultDragHandles: false,
+                  itemCount: _groups.length,
+                  onReorderItem: (oldIndex, newIndex) {
+                    setState(() {
+                      final group = _groups.removeAt(oldIndex);
+                      _groups.insert(newIndex, group);
+                    });
+                  },
+                  itemBuilder: (context, index) => Padding(
+                    key: ValueKey(_groups[index].key),
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _groupCard(_groups[index], index),
+                  ),
+                ),
+        ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+            child: Text(_error!,
+                style: context.label(11, color: c.danger),
+                textAlign: TextAlign.center),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Row(
+            children: [
+              TextButton.icon(
+                onPressed: _saving ? null : _createFolder,
+                icon: const Icon(Icons.create_new_folder_outlined, size: 17),
+                label: const Text('New folder'),
+              ),
+              const Spacer(),
+              FilledButton(
+                onPressed: _saving ? null : _save,
+                child: Text(_saving ? 'Saving…' : 'Save order'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _groupCard(_OrganizerGroup group, int rootIndex) {
+    final c = context.c;
+    final folder = group.folder;
+    if (folder == null) {
+      return Material(
+        color: c.panel,
+        borderRadius: BorderRadius.circular(12),
+        child: _serverRow(group.servers.single, group: group),
+      );
+    }
+    final folderColor = parseHex(folder.color) ?? c.accent;
+    return Container(
+      decoration: BoxDecoration(
+        color: c.panel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: folderColor.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+            child: Row(
+              children: [
+                Icon(Icons.folder_rounded, size: 19, color: folderColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(folder.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.label(13, weight: FontWeight.w700)),
+                ),
+                Text('${group.servers.length}',
+                    style: context.label(10, color: c.muted)),
+                PopupMenuButton<String>(
+                  tooltip: 'Folder actions',
+                  onSelected: (value) {
+                    if (value == 'rename') _renameFolder(group);
+                    if (value == 'delete') _deleteFolder(group);
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                        value: 'rename', child: Text('Rename folder')),
+                    PopupMenuItem(
+                        value: 'delete', child: Text('Delete folder')),
+                  ],
+                ),
+                ReorderableDragStartListener(
+                  index: rootIndex,
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Icon(Icons.drag_handle_rounded, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (group.servers.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              child: Text('Empty folder',
+                  style: context.label(11, color: c.muted)),
+            )
+          else
+            for (var index = 0; index < group.servers.length; index++)
+              _serverRow(
+                group.servers[index],
+                group: group,
+                index: index,
+              ),
+        ],
+      ),
+    );
+  }
+
+  Widget _serverRow(Server server,
+      {required _OrganizerGroup group, int? index}) {
+    final c = context.c;
+    final inFolder = group.folder != null;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(inFolder ? 14 : 10, 7, 4, 7),
+      child: Row(
+        children: [
+          AppAvatar(
+              url: server.iconUrl, name: server.name, size: 34, square: true),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(server.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.label(12.5, weight: FontWeight.w600)),
+          ),
+          if (inFolder) ...[
+            IconButton(
+              onPressed: index == 0
+                  ? null
+                  : () => _moveWithinFolder(group, index!, index - 1),
+              tooltip: 'Move up',
+              icon: const Icon(Icons.keyboard_arrow_up_rounded, size: 19),
+              visualDensity: VisualDensity.compact,
+            ),
+            IconButton(
+              onPressed: index == group.servers.length - 1
+                  ? null
+                  : () => _moveWithinFolder(group, index!, index + 1),
+              tooltip: 'Move down',
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 19),
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+          PopupMenuButton<String>(
+            tooltip: 'Move server',
+            icon: Icon(Icons.drive_file_move_outline, size: 19, color: c.muted),
+            onSelected: (value) =>
+                _moveServer(server, value == 'root' ? null : value),
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(
+                value: 'root',
+                checked: !inFolder,
+                child: const Text('No folder'),
+              ),
+              for (final folder in _folders)
+                CheckedPopupMenuItem(
+                  value: folder.id,
+                  checked: group.folder?.id == folder.id,
+                  child: Text(folder.name),
+                ),
+            ],
+          ),
+          if (!inFolder)
+            ReorderableDragStartListener(
+              index: _groups.indexOf(group),
+              child: const Padding(
+                padding: EdgeInsets.all(12),
+                child: Icon(Icons.drag_handle_rounded, size: 20),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrganizerGroup {
+  _OrganizerGroup({this.folder, required this.servers});
+
+  ServerFolder? folder;
+  final List<Server> servers;
+
+  String get key =>
+      folder == null ? 'server:${servers.single.id}' : 'folder:${folder!.id}';
 }
 
 class _RailUnit {
